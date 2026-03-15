@@ -47,21 +47,39 @@ export default function NewContractPage() {
         apiClient.getTenants(),
         apiClient.getRentalSpaces({ per_page: 1000 }), // Fetch ALL spaces at once
       ])
+      
+      // DEBUG: Log raw response structure
+      console.log('🔍 Raw spacesData from API:', spacesData)
+      console.log('🔍 spacesData.data:', spacesData.data)
+      
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
       const allSpacesArray = spacesData.data?.data || spacesData.data || []
       
+      console.log('📊 allSpacesArray:', allSpacesArray)
+      console.log('📊 allSpacesArray.length:', allSpacesArray.length)
+      
+      if (allSpacesArray.length > 0) {
+        console.log('📊 First space keys:', Object.keys(allSpacesArray[0]))
+        console.log('📊 First space activeContractsCount:', allSpacesArray[0].activeContractsCount)
+        console.log('📊 First space active_contracts_count:', allSpacesArray[0].active_contracts_count)
+      }
+      
       // Filter to only spaces WITHOUT active contracts
       // Check activeContractsCount to determine if space is occupied
       const availableSpaces = allSpacesArray.filter((space: any) => {
-        const hasActiveContract = (space.activeContractsCount ?? space.active_contracts_count ?? 0) > 0
+        const activeCount = space.activeContractsCount ?? space.active_contracts_count ?? 0
+        const hasActiveContract = activeCount > 0
+        if (hasActiveContract) {
+          console.log(`🔴 Filtering out ${space.space_code}: activeCount=${activeCount}`)
+        }
         return !hasActiveContract
       })
       
       console.log('✅ Total spaces we got:', allSpacesArray.length)
       console.log('✅ Available spaces after filtering:', availableSpaces.length)
       console.log('✅ Occupied spaces:', allSpacesArray.length - availableSpaces.length)
-      console.log('✅ Sample available:', availableSpaces.slice(0, 3).map((s: any) => s.space_code))
+      console.log('✅ Spaces in state:', availableSpaces.map((s: any) => s.space_code).slice(0, 10))
       
       setTenants(tenantsArray)
       setSpaces(availableSpaces)
@@ -184,6 +202,10 @@ export default function NewContractPage() {
               <div ref={dropdownRef} style={{ position: 'relative', zIndex: 50 }}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Rental Space <span className="text-red-500">*</span>
+                  {/* Debug: Show count */}
+                  <span className="text-xs text-blue-600 ml-2">
+                    ({spaces.length} available spaces)
+                  </span>
                 </label>
                 
                 {/* Hidden input for form submission */}
