@@ -43,42 +43,25 @@ export default function NewContractPage() {
 
   const fetchData = async () => {
     try {
-      console.log('[FETCH START] Getting rental spaces...')
+      console.log('[FETCH START] Getting tenant and available rental spaces...')
       const [tenantsData, spacesData] = await Promise.all([
         apiClient.getTenants(),
-        apiClient.getRentalSpaces({ per_page: 1000 }), // Fetch ALL spaces at once
+        apiClient.getAvailableRentalSpaces({ per_page: 1000 }), // Fetch ONLY available spaces
       ])
       
       console.log('[API RESPONSE] Received spacesData:', spacesData)
       
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
-      const allSpacesArray = spacesData.data?.data || spacesData.data || []
+      const availableSpaces = spacesData.data?.data || spacesData.data || []
       
-      console.log('[EXTRACTED] allSpacesArray has', allSpacesArray.length, 'spaces')
+      console.log('[EXTRACTED] availableSpaces has', availableSpaces.length, 'spaces')
       
-      if (allSpacesArray.length > 0) {
-        console.log('[FIRST SPACE] Keys:', Object.keys(allSpacesArray[0]))
+      if (availableSpaces.length > 0) {
+        console.log('[FIRST SPACE] Keys:', Object.keys(availableSpaces[0]))
       }
       
-      // Filter to only spaces WITHOUT active contracts
-      const availableSpaces = allSpacesArray.filter((space: any) => {
-        const activeCount = space.activeContractsCount ?? space.active_contracts_count ?? 0
-        const hasActiveContract = activeCount > 0
-        
-        if (!hasActiveContract) {
-          // This MUST show for available spaces
-          console.log(`[✅ KEEP] ${space.space_code} - activeCount=${activeCount}`)
-        } else {
-          // This MUST show for occupied spaces
-          console.error(`[❌ FILTER OUT] ${space.space_code} - activeCount=${activeCount}`)
-        }
-        
-        return !hasActiveContract
-      })
-      
-      console.error('[FILTER COMPLETE] Starting with', allSpacesArray.length, 'ending with', availableSpaces.length)
-      console.log('✅ Setting spaces state to:', availableSpaces.length, 'spaces')
+      console.log('✅ Setting spaces state to:', availableSpaces.length, 'available spaces')
       
       setTenants(tenantsArray)
       setSpaces(availableSpaces)
