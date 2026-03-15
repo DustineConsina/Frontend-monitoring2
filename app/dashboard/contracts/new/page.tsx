@@ -45,28 +45,13 @@ export default function NewContractPage() {
     try {
       const [tenantsData, spacesData] = await Promise.all([
         apiClient.getTenants(),
-        apiClient.getRentalSpaces(),
+        apiClient.getAvailableRentalSpaces(), // Use available spaces only!
       ])
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
       const spacesArray = spacesData.data?.data || spacesData.data || []
       setTenants(tenantsArray)
-      
-      // Debug: Log spaces to check status values
-      console.log('🔍 Raw spaces from API:', spacesArray)
-      console.log('🔍 Status values:', spacesArray.map((s: any) => ({ id: s.id, status: s.status, space_status: s.space_status })))
-      
-      // Filter only AVAILABLE spaces (case-insensitive)
-      const availableSpaces = spacesArray.filter((s: any) => {
-        const status = String(s.status || s.space_status || '').toUpperCase()
-        const isAvailable = status === 'AVAILABLE'
-        if (!isAvailable) {
-          console.log(`🚫 Filtering out space ${s.id}: status="${status}"`)
-        }
-        return isAvailable
-      })
-      console.log('✅ Filtered available spaces:', availableSpaces.length)
-      setSpaces(availableSpaces)
+      setSpaces(spacesArray)
     } catch (err: any) {
       alert(err.message || 'Failed to load data')
     } finally {

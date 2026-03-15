@@ -274,6 +274,12 @@ class ApiClient {
     return this.request<any>(`/rental-spaces/${id}`)
   }
 
+  // Get only available rental spaces (unoccupied)
+  async getAvailableRentalSpaces(params?: any) {
+    const query = params ? `?${new URLSearchParams(params)}` : ''
+    return this.request<any>(`/rental-spaces-available${query}`)
+  }
+
   // Messages/Chat
   async getMessages(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
