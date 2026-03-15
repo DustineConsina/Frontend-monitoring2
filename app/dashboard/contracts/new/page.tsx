@@ -45,7 +45,7 @@ export default function NewContractPage() {
     try {
       const [tenantsData, spacesData] = await Promise.all([
         apiClient.getTenants(),
-        apiClient.getRentalSpaces(), // Get all spaces
+        apiClient.getRentalSpaces({ per_page: 1000 }), // Fetch ALL spaces at once
       ])
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
@@ -54,13 +54,14 @@ export default function NewContractPage() {
       // Filter to only spaces WITHOUT active contracts
       // Check activeContractsCount to determine if space is occupied
       const availableSpaces = allSpacesArray.filter((space: any) => {
-        const hasActiveContract = space.activeContractsCount > 0 || space.active_contracts_count > 0
+        const hasActiveContract = (space.activeContractsCount ?? space.active_contracts_count ?? 0) > 0
         return !hasActiveContract
       })
       
       console.log('✅ Total spaces we got:', allSpacesArray.length)
       console.log('✅ Available spaces after filtering:', availableSpaces.length)
       console.log('✅ Occupied spaces:', allSpacesArray.length - availableSpaces.length)
+      console.log('✅ Sample available:', availableSpaces.slice(0, 3).map((s: any) => s.space_code))
       
       setTenants(tenantsArray)
       setSpaces(availableSpaces)
