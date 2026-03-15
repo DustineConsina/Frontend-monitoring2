@@ -43,43 +43,42 @@ export default function NewContractPage() {
 
   const fetchData = async () => {
     try {
+      console.log('[FETCH START] Getting rental spaces...')
       const [tenantsData, spacesData] = await Promise.all([
         apiClient.getTenants(),
         apiClient.getRentalSpaces({ per_page: 1000 }), // Fetch ALL spaces at once
       ])
       
-      // DEBUG: Log raw response structure
-      console.log('🔍 Raw spacesData from API:', spacesData)
-      console.log('🔍 spacesData.data:', spacesData.data)
+      console.log('[API RESPONSE] Received spacesData:', spacesData)
       
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
       const allSpacesArray = spacesData.data?.data || spacesData.data || []
       
-      console.log('📊 allSpacesArray:', allSpacesArray)
-      console.log('📊 allSpacesArray.length:', allSpacesArray.length)
+      console.log('[EXTRACTED] allSpacesArray has', allSpacesArray.length, 'spaces')
       
       if (allSpacesArray.length > 0) {
-        console.log('📊 First space keys:', Object.keys(allSpacesArray[0]))
-        console.log('📊 First space activeContractsCount:', allSpacesArray[0].activeContractsCount)
-        console.log('📊 First space active_contracts_count:', allSpacesArray[0].active_contracts_count)
+        console.log('[FIRST SPACE] Keys:', Object.keys(allSpacesArray[0]))
       }
       
       // Filter to only spaces WITHOUT active contracts
-      // Check activeContractsCount to determine if space is occupied
       const availableSpaces = allSpacesArray.filter((space: any) => {
         const activeCount = space.activeContractsCount ?? space.active_contracts_count ?? 0
         const hasActiveContract = activeCount > 0
-        if (hasActiveContract) {
-          console.log(`🔴 Filtering out ${space.space_code}: activeCount=${activeCount}`)
+        
+        if (!hasActiveContract) {
+          // This MUST show for available spaces
+          console.log(`[✅ KEEP] ${space.space_code} - activeCount=${activeCount}`)
+        } else {
+          // This MUST show for occupied spaces
+          console.error(`[❌ FILTER OUT] ${space.space_code} - activeCount=${activeCount}`)
         }
+        
         return !hasActiveContract
       })
       
-      console.log('✅ Total spaces we got:', allSpacesArray.length)
-      console.log('✅ Available spaces after filtering:', availableSpaces.length)
-      console.log('✅ Occupied spaces:', allSpacesArray.length - availableSpaces.length)
-      console.log('✅ Spaces in state:', availableSpaces.map((s: any) => s.space_code).slice(0, 10))
+      console.error('[FILTER COMPLETE] Starting with', allSpacesArray.length, 'ending with', availableSpaces.length)
+      console.log('✅ Setting spaces state to:', availableSpaces.length, 'spaces')
       
       setTenants(tenantsArray)
       setSpaces(availableSpaces)
@@ -87,6 +86,7 @@ export default function NewContractPage() {
       console.error('❌ Error fetching data:', err)
       alert(err.message || 'Failed to load data')
     } finally {
+      console.log('[FETCH END] loadingData set to false')
       setLoadingData(false)
     }
   }
