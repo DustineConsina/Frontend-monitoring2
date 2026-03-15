@@ -121,16 +121,30 @@ export default function DemandLettersPage() {
 
   const handleDownload = async (demandLetterId: number) => {
     try {
-      const response = await apiClient.get(
-        `/api/demand-letters/${demandLetterId}/download`,
-        { responseType: 'blob' }
+      const token = localStorage.getItem('auth_token')
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+      
+      const response = await fetch(
+        `${baseUrl}/demand-letters/${demandLetterId}/download`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }
       )
-      const url = window.URL.createObjectURL(new Blob([response.data]))
+      
+      if (!response.ok) {
+        throw new Error('Failed to download demand letter')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
       link.setAttribute('download', `demand-letter-${demandLetterId}.pdf`)
       document.body.appendChild(link)
       link.click()
+      window.URL.revokeObjectURL(url)
       link.parentNode?.removeChild(link)
     } catch (err) {
       alert('Failed to download demand letter')
