@@ -3,13 +3,23 @@
 import { useEffect, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
-import { Notification } from '@/types'
+
+interface NotificationData {
+  id: number
+  type: string
+  title: string
+  message: string
+  data?: any
+  isRead: boolean
+  createdAt: string
+}
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<any[]>([])
+  const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>('all')
+  const [selectedNotif, setSelectedNotif] = useState<NotificationData | null>(null)
 
   useEffect(() => {
     fetchNotifications()
@@ -18,7 +28,6 @@ export default function NotificationsPage() {
   const fetchNotifications = async () => {
     try {
       const response = await apiClient.getNotifications()
-      // Extract the data array from paginated response
       const notificationsData = response.data?.data || response.data || []
       setNotifications(Array.isArray(notificationsData) ? notificationsData : [])
       setError(null)
@@ -32,35 +41,30 @@ export default function NotificationsPage() {
 
   const filteredNotifications = notifications.filter((notif) => {
     if (filter === 'all') return true
-    // Convert filter value to match notification type format
     const filterType = filter.toUpperCase().replace(/-/g, '_')
     return notif.type === filterType
   })
 
-  const getNotificationIcon = (type: string) => {
-    const icons: Record<string, string> = {
-      'PAYMENT_DUE': '💰',
-      'PAYMENT_OVERDUE': '⚠️',
-      'CONTRACT_RENEWAL': '📝',
-      'CONTRACT_EXPIRING': '⏰',
-      'contract_renewal': '📝',
-      'contract_activated': '✅',
-      'contract_terminated': '❌',
+  const getTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      'contract_renewal': 'Contract Renewal',
+      'contract_activated': 'Contract Activated',
+      'contract_terminated': 'Contract Terminated',
+      'payment_due': 'Payment Due',
+      'payment_overdue': 'Payment Overdue',
     }
-    return icons[type] || '📬'
+    return labels[type] || type.replace(/_/g, ' ')
   }
 
-  const getNotificationColor = (type: string) => {
+  const getTypeColor = (type: string) => {
     const colors: Record<string, string> = {
-      'PAYMENT_DUE': 'bg-yellow-50 border-yellow-200',
-      'PAYMENT_OVERDUE': 'bg-red-50 border-red-200',
-      'CONTRACT_RENEWAL': 'bg-blue-50 border-blue-200',
-      'CONTRACT_EXPIRING': 'bg-orange-50 border-orange-200',
-      'contract_renewal': 'bg-blue-50 border-blue-200',
-      'contract_activated': 'bg-green-50 border-green-200',
-      'contract_terminated': 'bg-red-50 border-red-200',
+      'contract_renewal': 'text-blue-600 bg-blue-50',
+      'contract_activated': 'text-green-600 bg-green-50',
+      'contract_terminated': 'text-red-600 bg-red-50',
+      'payment_due': 'text-yellow-600 bg-yellow-50',
+      'payment_overdue': 'text-red-600 bg-red-50',
     }
-    return colors[type] || 'bg-gray-50 border-gray-200'
+    return colors[type] || 'text-gray-600 bg-gray-50'
   }
 
   return (
@@ -97,11 +101,11 @@ export default function NotificationsPage() {
             <option value="payment-due">Payment Due</option>
             <option value="payment-overdue">Payment Overdue</option>
             <option value="contract-renewal">Contract Renewal</option>
-            <option value="contract-expiring">Contract Expiring</option>
+            <option value="contract-activated">Contract Activated</option>
           </select>
         </div>
 
-        {/* Notifications Grid */}
+        {/* Notifications Table */}
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -115,64 +119,63 @@ export default function NotificationsPage() {
             <p className="text-gray-400 text-sm mt-2">You're all caught up!</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredNotifications.map((notification) => (
-              <div
-                key={notification.id}
-                className={`bg-white rounded-lg shadow hover:shadow-lg p-6 border-l-4 transition-all ${getNotificationColor(notification.type)}`}
-              >
-                {/* Header with type and status */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-2 flex-1">
-                    <span className="text-2xl">{getNotificationIcon(notification.type)}</span>
-                    <h3 className="text-lg font-bold text-gray-900">
-                      {notification.title}
-                    </h3>
-                  </div>
-                  <span
-                    className={`px-2 py-1 text-xs font-semibold rounded-full flex-shrink-0 ml-2 ${
-                      notification.isRead
-                        ? 'bg-gray-100 text-gray-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-1/4">Type</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 flex-1">Message</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-1/5">Date</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-24">Status</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 w-20">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredNotifications.map((notification) => (
+                  <tr
+                    key={notification.id}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
                   >
-                    {notification.isRead ? 'Read' : 'New'}
-                  </span>
-                </div>
-
-                {/* Message */}
-                <div className="mb-4 pb-4 border-b border-gray-200">
-                  <p className="text-sm text-gray-700 line-clamp-3">
-                    {notification.message}
-                  </p>
-                </div>
-
-                {/* Details */}
-                <div className="space-y-2 text-xs text-gray-600">
-                  {notification.data?.contractNumber && (
-                    <div>
-                      <span className="font-semibold">Contract:</span> {notification.data.contractNumber}
-                    </div>
-                  )}
-                  {notification.data?.tenantName && (
-                    <div>
-                      <span className="font-semibold">Tenant:</span> {notification.data.tenantName}
-                    </div>
-                  )}
-                  {notification.data?.expiryDate && (
-                    <div>
-                      <span className="font-semibold">Expires:</span> {new Date(notification.data.expiryDate).toLocaleDateString()}
-                    </div>
-                  )}
-                  <div>
-                    <span className="font-semibold">Type:</span> {notification.type.replace(/_/g, ' ')}
-                  </div>
-                  <div className="pt-2 text-gray-500">
-                    {new Date(notification.createdAt).toLocaleDateString()} {new Date(notification.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              </div>
-            ))}
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTypeColor(notification.type)}`}
+                      >
+                        {getTypeLabel(notification.type)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      <div className="line-clamp-2">{notification.message}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {new Date(notification.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <span
+                        className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          notification.isRead
+                            ? 'bg-gray-100 text-gray-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {notification.isRead ? 'Read' : 'New'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => setSelectedNotif(notification)}
+                        className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -181,28 +184,112 @@ export default function NotificationsPage() {
             Showing {filteredNotifications.length} of {notifications.length} notifications
           </div>
         )}
+      </div>
 
-        {/* Notification Info */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="font-semibold text-blue-900 mb-3">
-            📧 System Notifications
-          </h3>
-          <div className="text-sm text-blue-800 space-y-2">
-            <p>
-              • <strong>Contract Renewal:</strong> Alerts when contracts are expiring soon
-            </p>
-            <p>
-              • <strong>Payment Due:</strong> Reminders for upcoming payments
-            </p>
-            <p>
-              • <strong>Payment Overdue:</strong> Alerts for overdue payments
-            </p>
-            <p>
-              • <strong>Contract Status:</strong> Updates on contract activation/termination
-            </p>
+      {/* Modal */}
+      {selectedNotif && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-gray-50 border-b px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900">{selectedNotif.title}</h3>
+              <button
+                onClick={() => setSelectedNotif(null)}
+                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Type Badge */}
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-600">Type:</span>
+                <span
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getTypeColor(selectedNotif.type)}`}
+                >
+                  {getTypeLabel(selectedNotif.type)}
+                </span>
+              </div>
+
+              {/* Message */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 mb-2">Message</h4>
+                <p className="text-gray-700 leading-relaxed">{selectedNotif.message}</p>
+              </div>
+
+              {/* Details Grid */}
+              {selectedNotif.data && (
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                  {selectedNotif.data.contractNumber && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Contract Number</p>
+                      <p className="text-lg font-semibold text-gray-900 mt-1">{selectedNotif.data.contractNumber}</p>
+                    </div>
+                  )}
+                  {selectedNotif.data.tenantName && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Tenant</p>
+                      <p className="text-lg font-semibold text-gray-900 mt-1">{selectedNotif.data.tenantName}</p>
+                    </div>
+                  )}
+                  {selectedNotif.data.rentalSpace && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Rental Space</p>
+                      <p className="text-lg font-semibold text-gray-900 mt-1">{selectedNotif.data.rentalSpace}</p>
+                    </div>
+                  )}
+                  {selectedNotif.data.expiryDate && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Expiry Date</p>
+                      <p className="text-lg font-semibold text-gray-900 mt-1">
+                        {new Date(selectedNotif.data.expiryDate).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </p>
+                    </div>
+                  )}
+                  {selectedNotif.data.daysUntilExpiry !== undefined && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Days Until Expiry</p>
+                      <p className="text-lg font-semibold text-gray-900 mt-1">
+                        {Math.ceil(selectedNotif.data.daysUntilExpiry)} {selectedNotif.data.daysUntilExpiry === 1 ? 'day' : 'days'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="pt-4 border-t">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Received</p>
+                <p className="text-sm text-gray-600">
+                  {new Date(selectedNotif.createdAt).toLocaleDateString('en-US', {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-gray-50 border-t px-6 py-4 flex justify-end gap-3">
+              <button
+                onClick={() => setSelectedNotif(null)}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </ProtectedRoute>
   )
 }
