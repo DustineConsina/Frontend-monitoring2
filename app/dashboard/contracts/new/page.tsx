@@ -45,19 +45,25 @@ export default function NewContractPage() {
     try {
       const [tenantsData, spacesData] = await Promise.all([
         apiClient.getTenants(),
-        apiClient.getAvailableRentalSpaces(), // Use available spaces only!
+        apiClient.getRentalSpaces(), // Get all spaces
       ])
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
-      const spacesArray = spacesData.data?.data || spacesData.data || []
+      const allSpacesArray = spacesData.data?.data || spacesData.data || []
       
-      // DEBUG: Log what we got
-      console.log('✅ Raw spacesData from API:', spacesData)
-      console.log('✅ Extracted spacesArray:', spacesArray)
-      console.log('✅ Number of available spaces:', spacesArray.length)
+      // Filter to only spaces WITHOUT active contracts
+      // Check activeContractsCount to determine if space is occupied
+      const availableSpaces = allSpacesArray.filter((space: any) => {
+        const hasActiveContract = space.activeContractsCount > 0 || space.active_contracts_count > 0
+        return !hasActiveContract
+      })
+      
+      console.log('✅ Total spaces we got:', allSpacesArray.length)
+      console.log('✅ Available spaces after filtering:', availableSpaces.length)
+      console.log('✅ Occupied spaces:', allSpacesArray.length - availableSpaces.length)
       
       setTenants(tenantsArray)
-      setSpaces(spacesArray)
+      setSpaces(availableSpaces)
     } catch (err: any) {
       console.error('❌ Error fetching data:', err)
       alert(err.message || 'Failed to load data')
