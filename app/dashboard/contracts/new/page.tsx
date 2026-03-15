@@ -50,9 +50,16 @@ export default function NewContractPage() {
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
       const spacesArray = spacesData.data?.data || spacesData.data || []
+      
+      // DEBUG: Log what we got
+      console.log('✅ Raw spacesData from API:', spacesData)
+      console.log('✅ Extracted spacesArray:', spacesArray)
+      console.log('✅ Number of available spaces:', spacesArray.length)
+      
       setTenants(tenantsArray)
       setSpaces(spacesArray)
     } catch (err: any) {
+      console.error('❌ Error fetching data:', err)
       alert(err.message || 'Failed to load data')
     } finally {
       setLoadingData(false)
