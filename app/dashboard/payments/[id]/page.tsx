@@ -6,7 +6,7 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
-import { Payment } from '@/types'
+import { Payment, DemandLetter } from '@/types'
 
 export default function PaymentDetailPage() {
   const router = useRouter()
@@ -439,6 +439,41 @@ export default function PaymentDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* Demand Letters Section */}
+            {payment.demandLetters && payment.demandLetters.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">📋 Demand Letters</h3>
+                <div className="space-y-3">
+                  {payment.demandLetters.map((letter: any) => (
+                    <div
+                      key={letter.id}
+                      className="border-l-4 border-red-500 bg-red-50 p-4 rounded flex items-center justify-between hover:bg-red-100 transition"
+                    >
+                      <div>
+                        <p className="font-semibold text-gray-900">{letter.demandNumber || letter.demand_number}</p>
+                        <p className="text-sm text-gray-600">
+                          Issued: {new Date(letter.issuedDate || letter.issued_date).toLocaleDateString()} | 
+                          Due: {new Date(letter.dueDate || letter.due_date).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm font-semibold text-red-700 mt-1">
+                          Amount Demanded: ₱{(letter.totalAmountDemanded || letter.total_amount_demanded || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <span className="text-xs inline-block mt-2 px-2 py-1 bg-red-200 text-red-800 rounded">
+                          {(letter.status || 'issued').toUpperCase()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => apiClient.downloadDemandLetter(letter.id)}
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition font-medium whitespace-nowrap ml-4"
+                      >
+                        📥 Download
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Contract & Tenant Information */}
             <div className="bg-white rounded-lg shadow p-6 space-y-4 lg:col-span-2">

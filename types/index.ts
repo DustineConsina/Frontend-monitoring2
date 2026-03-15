@@ -159,7 +159,42 @@ export interface Payment {
   created_at?: string
   updatedAt?: string
   updated_at?: string
+  demandLetters?: DemandLetter[]
+  demand_letters?: DemandLetter[]
 }
+
+export type DemandLetterStatus = 'issued' | 'sent' | 'paid' | 'cancelled'
+
+export interface DemandLetter {
+  id?: string
+  demandNumber?: string
+  demand_number?: string
+  contractId?: string
+  contract_id?: string
+  contract?: Contract
+  tenantId?: string
+  tenant_id?: string
+  tenant?: User
+  paymentId?: string
+  payment_id?: string
+  payment?: Payment
+  outstandingBalance?: number
+  outstanding_balance?: number
+  totalAmountDemanded?: number
+  total_amount_demanded?: number
+  issuedDate?: string
+  issued_date?: string
+  dueDate?: string
+  due_date?: string
+  status?: DemandLetterStatus
+  emailSentTo?: string
+  email_sent_to?: string
+  createdAt?: string
+  created_at?: string
+  updatedAt?: string
+  updated_at?: string
+}
+
 export type NotificationType = 
   | 'PAYMENT_DUE' 
   | 'PAYMENT_OVERDUE' 

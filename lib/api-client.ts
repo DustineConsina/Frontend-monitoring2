@@ -416,6 +416,33 @@ class ApiClient {
     })
   }
 
+  // Demand Letters
+  async getDemandLetters(contractId: string) {
+    return this.request<any>(`/contracts/${contractId}/demand-letters`)
+  }
+
+  async downloadDemandLetter(demandLetterId: string) {
+    const response = await fetch(`${this.baseUrl}/demand-letters/${demandLetterId}/download`, {
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to download demand letter')
+    }
+
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `demand-letter-${demandLetterId}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  }
+
   // Export reports
   async exportReportPDF(reportType: string, params?: any) {
     const cleanParams = params ? Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])) : {}
