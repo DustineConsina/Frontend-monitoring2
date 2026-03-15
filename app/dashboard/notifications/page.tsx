@@ -41,7 +41,7 @@ export default function NotificationsPage() {
 
   const filteredNotifications = notifications.filter((notif) => {
     if (filter === 'all') return true
-    const filterType = filter.toUpperCase().replace(/-/g, '_')
+    const filterType = filter.toLowerCase().replace(/-/g, '_')
     return notif.type === filterType
   })
 
@@ -144,7 +144,12 @@ export default function NotificationsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
-                      <div className="line-clamp-2">{notification.message}</div>
+                      <div className="line-clamp-2">
+                        {notification.message.replace(
+                          /will expire in ([\d.]+) days/,
+                          `will expire in ${Math.ceil(notification.data?.daysUntilExpiry || 0)} days`
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {new Date(notification.createdAt).toLocaleDateString('en-US', {
