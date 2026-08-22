@@ -26,60 +26,37 @@ export default function LoginPage() {
       setPageLoading(false)
     } catch (err: any) {
       setPageLoading(false)
-      setError(err.message || 'Invalid email or password')
+      const message = err.message || 'Invalid email or password'
+      const isServiceNotice = message === 'Unable to connect to the service. Please try again in a moment.' ||
+        message === 'The requested service is currently unavailable.' ||
+        message === 'The service is temporarily unavailable. Please try again in a moment.'
+      setError(isServiceNotice ? '' : message)
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div 
-      className="flex min-h-screen items-center justify-center px-4 relative overflow-hidden"
-      style={{
-        background: 'linear-gradient(180deg, #0a1f3f 0%, #0d4a7e 25%, #1e6ba8 50%, #2a89c1 75%, #1a5a8f 100%)',
-        backgroundAttachment: 'fixed',
-      }}
-    >
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Floating circles for water effect */}
-        <div className="absolute top-10 left-10 w-20 h-20 rounded-full bg-blue-400/10 blur-3xl animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute bottom-20 right-10 w-32 h-32 rounded-full bg-cyan-400/10 blur-3xl animate-pulse" style={{ animationDuration: '5s', animationDelay: '1s' }} />
-        <div className="absolute top-1/3 right-1/4 w-24 h-24 rounded-full bg-blue-300/10 blur-3xl animate-pulse" style={{ animationDuration: '6s', animationDelay: '2s' }} />
-      </div>
-
-      {/* Overlay with wave pattern */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/30" />
-      
-      <div className="w-full max-w-md relative z-10">
-        {/* Login Card */}
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl p-8 border border-white/30">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="flex justify-center mb-4">
-              <PFDALogo />
+    <div className="flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_32%),linear-gradient(180deg,#f8fbff_0%,#edf5ff_100%)] px-4 py-8">
+      <div className="w-full max-w-md">
+        <div className="rounded-[28px] border border-sky-100 bg-white/90 p-7 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+          <div className="mb-8 text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="rounded-2xl border border-sky-100 bg-sky-50 p-3 shadow-sm">
+                <PFDALogo />
+              </div>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-1">PFDA</h1>
-            <p className="text-xs text-gray-600 font-semibold mb-2">Philippine Fisheries Development Authority</p>
-            <h2 className="text-lg font-semibold text-gray-800">
-              Contract Management System
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Bulan, Sorsogon Fish Port
-            </p>
+            <div className="mb-2 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">
+              PFDA
+            </div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">Contract Management</h1>
+            <p className="mt-2 text-sm text-slate-600">Philippine Fisheries Development Authority</p>
+            <p className="mt-1 text-xs text-slate-500">Bulan, Sorsogon Fish Port</p>
           </div>
 
-          {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-medium flex items-start gap-2">
-                <span>⚠️</span>
-                <span>{error}</span>
-              </div>
-            )}
-
             <div>
-              <label htmlFor="email" className="block text-sm font-semibold text-gray-900 mb-2">
+              <label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-700">
                 Email Address
               </label>
               <input
@@ -88,13 +65,13 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white text-gray-900 placeholder-gray-400"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 placeholder="your.email@example.com"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-semibold text-gray-900 mb-2">
+              <label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-700">
                 Password
               </label>
               <input
@@ -103,7 +80,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white text-gray-900 placeholder-gray-400"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 placeholder="••••••••"
               />
             </div>
@@ -111,11 +88,11 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed mt-6"
+              className="mt-6 w-full rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-sm font-bold text-white shadow-[0_12px_24px_rgba(37,99,235,0.25)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent"></span>
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent" />
                   <span>Signing in...</span>
                 </span>
               ) : (
@@ -124,15 +101,36 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-xs text-gray-600 pt-4 border-t border-gray-200">
+          <div className="mt-6 border-t border-slate-200 pt-4 text-center text-xs text-slate-500">
             <p>Contact your administrator for account access</p>
           </div>
         </div>
 
-        <div className="text-center mt-6 text-xs text-white drop-shadow-lg">
-          <p>© 2026 PFDA Bulan, Sorsogon | Contract Monitoring System</p>
+        <div className="mt-6 text-center text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          <p>© 2026 PFDA Bulan, Sorsogon</p>
         </div>
       </div>
+
+      {error && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/30 px-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby="login-error-title">
+          <div className="w-full max-w-sm rounded-2xl border border-[#f3c8ce] bg-white p-6 shadow-[0_24px_70px_rgba(39,48,80,0.2)]">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff0f2] text-lg text-[#d94b5a]">!</div>
+              <div>
+                <h2 id="login-error-title" className="text-base font-semibold text-[#28334b]">Sign-in unavailable</h2>
+                <p className="mt-1 text-sm leading-6 text-[#7d8699]">{error}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setError('')}
+              className="w-full rounded-md bg-[#5148e5] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4038c7]"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

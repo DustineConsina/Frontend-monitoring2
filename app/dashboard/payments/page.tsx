@@ -8,6 +8,21 @@ import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Payment } from '@/types'
 
+function getBillingPeriodLabel(dueDate?: string): string {
+  if (!dueDate) return 'N/A'
+  const [year, month, day] = dueDate.slice(0, 10).split('-').map(Number)
+  if (![year, month, day].every(Number.isFinite)) return 'N/A'
+
+  const startDate = new Date(year, month - 1, day)
+  const endDate = new Date(year, month, 1)
+  const lastDay = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0).getDate()
+  endDate.setDate(Math.min(day, lastDay))
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 'N/A'
+  const formatDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
+  return `${formatDate(startDate)} - ${formatDate(endDate)}`
+}
+
 export default function PaymentsPage() {
   const router = useRouter()
   const { user } = useAuth()
@@ -338,10 +353,10 @@ export default function PaymentsPage() {
                             {contractStatus.toUpperCase()}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {payment.billingPeriodStart && payment.billingPeriodEnd
-                            ? `${new Date(payment.billingPeriodStart).toLocaleDateString()} - ${new Date(payment.billingPeriodEnd).toLocaleDateString()}`
-                            : 'N/A'}
+                          <td className="px-6 py-4 text-sm text-gray-900">
+                            {payment.billingPeriodStart && payment.billingPeriodEnd
+                              ? `${new Date(payment.billingPeriodStart).toLocaleDateString()} - ${new Date(payment.billingPeriodEnd).toLocaleDateString()}`
+                              : getBillingPeriodLabel(payment.dueDate)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : 'N/A'}

@@ -6,6 +6,23 @@ interface ApiError {
   status: number
 }
 
+function showGlobalConnectionNotice(title: string, message: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('app:notice', { detail: { title, message } }))
+  }
+}
+
+function sanitizeErrorMessage(message: string): string {
+  const normalizedMessage = message.toLowerCase()
+  const containsTechnicalAddress = /localhost|127\.0\.0\.1|0\.0\.0\.0|https?:\/\//.test(normalizedMessage)
+
+  if (containsTechnicalAddress || normalizedMessage.includes('backend endpoint')) {
+    return 'The service is temporarily unavailable. Please try again in a moment.'
+  }
+
+  return message
+}
+
 // Convert camelCase to snake_case
 function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
@@ -114,29 +131,39 @@ class ApiClient {
       if (!response.ok) {
         // Check if response is HTML (404 page, etc.)
         if (contentType?.includes('text/html')) {
-          const err = new Error(`Backend endpoint not found: ${this.baseUrl}${endpoint}`)
+          const err = new Error('The requested service is currently unavailable.')
           ;(err as any).status = response.status
+          showGlobalConnectionNotice('Service unavailable', err.message)
           throw err
         }
 
-        // Try to parse JSON error
-        try {
-          const errorData = await response.json()
-          const message = errorData.message || errorData.error || 'Request failed'
-          const err = new Error(message)
-          ;(err as any).errors = errorData.errors || null
-          ;(err as any).debug = errorData.debug || null
-          ;(err as any).status = response.status
-          throw err
-        } catch (e: any) {
-          // If JSON parse fails, use status text
-          if (e instanceof Error && e.message) {
-            throw e
+        // Read the raw body once so we can handle JSON, text, or empty error responses safely.
+        const rawErrorText = await response.text()
+        let errorData: any = null
+
+        if (rawErrorText) {
+          try {
+            errorData = JSON.parse(rawErrorText)
+          } catch {
+            errorData = null
           }
-          const err = new Error(`Error ${response.status}: ${response.statusText}`)
-          ;(err as any).status = response.status
-          throw err
         }
+
+        const rawMessage =
+          errorData?.message ||
+          errorData?.error ||
+          (rawErrorText ? rawErrorText.trim() : 'Request failed') ||
+          `Error ${response.status}: ${response.statusText}`
+        const message = sanitizeErrorMessage(String(rawMessage))
+
+        const err = new Error(message)
+        ;(err as any).errors = errorData?.errors || null
+        ;(err as any).debug = errorData?.debug || null
+        ;(err as any).status = response.status
+        if (message !== rawMessage) {
+          showGlobalConnectionNotice('Request could not be completed', message)
+        }
+        throw err
       }
 
       // Check if successful response is HTML (shouldn't be)
@@ -158,8 +185,9 @@ class ApiClient {
     } catch (error: any) {
       // Network errors (backend not running)
       if (error.name === 'TypeError' && error.message?.includes('fetch')) {
-        const err = new Error(`Cannot connect to backend at ${this.baseUrl}. Make sure backend is running.`)
+        const err = new Error('Unable to connect to the service. Please try again in a moment.')
         ;(err as any).status = 0
+        showGlobalConnectionNotice('Connection problem', err.message)
         throw err
       }
       // Re-throw our formatted errors

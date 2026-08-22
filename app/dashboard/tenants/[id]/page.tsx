@@ -453,11 +453,11 @@ export default function TenantDetailsPage() {
       {/* Edit Tenant Modal */}
       {showEditModal && (
         <>
-          <div className="fixed inset-0 backdrop-blur-sm z-40" onClick={closeEditModal} />
+          <div className="fixed inset-0 z-40 bg-[#28334b]/35 backdrop-blur-sm" onClick={closeEditModal} />
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="modal-shell max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b p-6 flex justify-between items-center">
+            <div className="modal-header sticky top-0 flex items-center justify-between">
               <h3 className="text-xl font-bold text-gray-900">Edit Tenant</h3>
               <button
                 onClick={closeEditModal}
@@ -469,7 +469,7 @@ export default function TenantDetailsPage() {
             </div>
 
             {/* Modal Content */}
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-6">
+            <form onSubmit={handleEditSubmit} className="modal-body space-y-6">
               {/* Success Message */}
               {editSuccess && (
                 <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded">

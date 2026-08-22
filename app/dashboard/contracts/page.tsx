@@ -512,11 +512,11 @@ function ContractsPageContent() {
         {/* Add/Edit Contract Modal */}
         {showModal && (
           <>
-            <div className="fixed inset-0 backdrop-blur-sm z-40" onClick={closeModal} />
+            <div className="fixed inset-0 z-40 bg-[#28334b]/35 backdrop-blur-sm" onClick={closeModal} />
             <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="modal-shell max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
               {/* Modal Header */}
-              <div className="sticky top-0 bg-white border-b p-6 flex justify-between items-center">
+              <div className="modal-header sticky top-0 flex items-center justify-between">
                 <h3 className="text-xl font-bold text-gray-900">
                   {editingContractId ? 'Edit Contract' : 'Add New Contract'}
                 </h3>
@@ -538,7 +538,7 @@ function ContractsPageContent() {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleFormSubmit} className="p-6 space-y-6">
+                <form onSubmit={handleFormSubmit} className="modal-body space-y-6">
                   {/* Success Message */}
                   {modalSuccess && (
                     <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded">
@@ -554,7 +554,7 @@ function ContractsPageContent() {
                   )}
 
                   {/* Tenant Selection */}
-                  <div>
+                  <div className="form-section">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Tenant <span className="text-red-500">*</span>
                     </label>
@@ -580,7 +580,7 @@ function ContractsPageContent() {
                   </div>
 
                   {/* Rental Space Selection */}
-                  <div>
+                  <div className="form-section">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Rental Space <span className="text-red-500">*</span>
                     </label>
@@ -605,7 +605,7 @@ function ContractsPageContent() {
                   </div>
 
                   {/* Date Range */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Start Date <span className="text-red-500">*</span>
@@ -638,7 +638,7 @@ function ContractsPageContent() {
                   </div>
 
                   {/* Financial Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Monthly Rent (₱) <span className="text-red-500">*</span>
@@ -676,7 +676,7 @@ function ContractsPageContent() {
                   </div>
 
                   {/* Terms and Conditions */}
-                  <div>
+                  <div className="form-section">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Terms and Conditions
                     </label>
@@ -692,7 +692,7 @@ function ContractsPageContent() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-2 justify-end pt-4 border-t">
+                  <div className="modal-actions">
                     <button
                       type="button"
                       onClick={closeModal}
@@ -704,7 +704,7 @@ function ContractsPageContent() {
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                      className="px-5 py-2.5 bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
                     >
                       {isSubmitting ? 'Saving...' : editingContractId ? 'Update Contract' : 'Create Contract'}
                     </button>

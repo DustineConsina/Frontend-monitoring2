@@ -53,7 +53,11 @@ export default function NewContractPage() {
       
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
-      const availableSpaces = spacesData.data?.data || spacesData.data || []
+      const availableSpaces = (spacesData.data?.data || spacesData.data || []).filter((space: any) => {
+        const status = String(space.status || '').toLowerCase()
+        const occupancyStatus = String(space.occupancyStatus || space.occupancy_status || '').toLowerCase()
+        return status === 'available' && occupancyStatus !== 'occupied'
+      })
       
       console.log('[EXTRACTED] availableSpaces has', availableSpaces.length, 'spaces')
       
@@ -151,7 +155,7 @@ export default function NewContractPage() {
         </div>
 
         {/* Form */}
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="form-shell p-6 lg:p-8">
           {loadingData ? (
             <div className="text-center py-12">
               <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
@@ -160,7 +164,7 @@ export default function NewContractPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Tenant Selection */}
-              <div style={{ position: 'relative', zIndex: 10 }}>
+              <div className="form-section" style={{ position: 'relative', zIndex: 10 }}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Tenant <span className="text-red-500">*</span>
                 </label>
@@ -182,7 +186,7 @@ export default function NewContractPage() {
               </div>
 
               {/* Rental Space Selection - Custom Dropdown */}
-              <div ref={dropdownRef} style={{ position: 'relative', zIndex: 50 }}>
+              <div ref={dropdownRef} className="form-section" style={{ position: 'relative', zIndex: 50 }}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Rental Space <span className="text-red-500">*</span>
                   {/* Debug: Show count */}
@@ -260,7 +264,7 @@ export default function NewContractPage() {
               </div>
 
               {/* Date Range - moved down to give space for dropdowns above */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Start Date <span className="text-red-500">*</span>
@@ -291,7 +295,7 @@ export default function NewContractPage() {
               </div>
 
               {/* Financial Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Monthly Rent (₱) <span className="text-red-500">*</span>
@@ -328,7 +332,7 @@ export default function NewContractPage() {
               </div>
 
               {/* Terms and Conditions */}
-              <div>
+              <div className="form-section">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Terms and Conditions
                 </label>
@@ -343,7 +347,7 @@ export default function NewContractPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-2 justify-end pt-4 border-t">
+              <div className="form-actions flex gap-2 justify-end">
                 <Link
                   href="/dashboard/contracts"
                   title="Cancel"
@@ -355,7 +359,7 @@ export default function NewContractPage() {
                   type="submit"
                   disabled={isLoading}
                   title="Create Contract"
-                  className="px-4 py-2 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 flex items-center justify-center bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? '⏳ Creating...' : 'Create'}
                 </button>
@@ -367,7 +371,7 @@ export default function NewContractPage() {
         {/* Success Message */}
         {successMessage && (
           <div className="fixed inset-0 flex items-center justify-center z-50">
-            <div className="bg-green-100 border border-green-400 text-green-700 px-6 py-4 rounded-lg shadow-lg max-w-sm">
+            <div className="rounded-xl border border-[#b9e5cc] bg-[#effbf3] px-6 py-4 text-[#2e8757] shadow-lg max-w-sm">
               {successMessage}
             </div>
           </div>

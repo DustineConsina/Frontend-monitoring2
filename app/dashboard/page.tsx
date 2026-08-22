@@ -8,7 +8,18 @@ import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { PFDALogo } from '@/components/PFDALogo'
 import { DashboardStats } from '@/types'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+
+function formatDashboardDate(value?: string | number): string {
+  if (!value) return 'Date unavailable'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString()
+}
+
+function formatDashboardAmount(value?: string | number): string {
+  const amount = typeof value === 'number' ? value : Number.parseFloat(String(value || '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(amount) ? `₱${amount.toLocaleString()}` : 'Amount unavailable'
+}
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -20,28 +31,41 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   useEffect(() => {
-    // Redirect cashiers to their dedicated dashboard
+    let isMounted = true
+
     if (user?.role && user.role.toUpperCase() === 'CASHIER') {
       router.push('/dashboard/cashier')
-      return
+      return () => {
+        isMounted = false
+      }
     }
 
-    fetchDashboardStats()
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchDashboardStats, 30000)
-    return () => clearInterval(interval)
+    fetchDashboardStats(isMounted)
+    const interval = setInterval(() => fetchDashboardStats(isMounted), 30000)
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
   }, [user, router])
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardStats = async (isMounted = true) => {
     try {
+      if (!isMounted || !localStorage.getItem('auth_token')) return
+
       setIsRefreshing(true)
       const data = await apiClient.getDashboardStats()
+      if (!isMounted) return
+
       setStats(data)
       setLastUpdated(new Date())
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load dashboard statistics')
-      console.error('Dashboard stats error:', err)
+    } catch (err: unknown) {
+      const status = err instanceof Error ? (err as Error & { status?: number }).status : undefined
+      if (!isMounted || (status === 401 && !localStorage.getItem('auth_token'))) return
+
+      const message = err instanceof Error ? err.message : 'Failed to load dashboard statistics'
+      setError(message)
+      console.warn('Dashboard stats unavailable; displaying empty state.', message)
     } finally {
       setIsRefreshing(false)
       setIsLoading(false)
@@ -51,10 +75,10 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <ProtectedRoute>
-        <div className="flex items-center justify-center h-64">
+        <div className="flex h-64 items-center justify-center">
           <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-indigo-600 border-r-transparent" />
-            <p className="mt-4 text-slate-600 font-medium">Loading dashboard...</p>
+            <div className="inline-block h-9 w-9 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+            <p className="mt-4 text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Loading dashboard</p>
           </div>
         </div>
       </ProtectedRoute>
@@ -63,27 +87,26 @@ export default function DashboardPage() {
 
   return (
     <ProtectedRoute>
-      <div className="space-y-8">
-        {/* Page Header */}
-        <div className="border-b border-slate-100 pb-8">
-          <div className="flex items-center justify-between gap-6">
+      <div className="space-y-6">
+        <div className="border-b border-[#e8eaf1] pb-5">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
-              <PFDALogo />
               <div>
-                <h1 className="text-3xl font-bold text-slate-900 mb-2">Dashboard Overview</h1>
-                <p className="text-slate-600 text-base font-medium">Welcome to the PFDA Contract Monitoring System</p>
+                <div className="mb-2 text-[11px] font-semibold text-[#5663c4]">Dashboard</div>
+                <h1 className="text-2xl font-medium tracking-tight text-[#354057]">Dashboard Overview</h1>
+                <p className="mt-1 text-xs text-[#9aa1b3]">Welcome to the PFDA Contract Monitoring System</p>
                 {lastUpdated && (
-                  <p className="text-xs text-slate-500 mt-2 font-medium">
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-[#9aa1b3]">
                     Last updated: {lastUpdated.toLocaleTimeString()}
                   </p>
                 )}
               </div>
             </div>
+
             <button
-              onClick={fetchDashboardStats}
+              onClick={() => fetchDashboardStats()}
               disabled={isRefreshing}
-              className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 active:bg-indigo-800 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center gap-2 whitespace-nowrap"
-              title="Refresh dashboard data"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#5148e5] px-4 py-2 text-[11px] font-semibold text-white transition hover:bg-[#4038c7] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isRefreshing ? (
                 <>
@@ -91,281 +114,107 @@ export default function DashboardPage() {
                   Refreshing...
                 </>
               ) : (
-                <>
-                  Refresh
-                </>
+                'Refresh'
               )}
             </button>
           </div>
         </div>
 
-        {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex items-start gap-3 justify-between">
-            <div className="flex items-start gap-3 flex-1">
-              <div>
-                <p className="text-sm font-medium text-red-900">{error}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
-            >
-              ×
-            </button>
+          <div className="flex items-start justify-between gap-3 rounded-md border border-[#ed5b69]/20 bg-[#fff2f4] p-4 text-[#c44d5b]">
+            <p className="text-sm font-medium">{error}</p>
+            <button onClick={() => setError(null)} className="text-xl leading-none text-red-500 hover:text-red-700">×</button>
           </div>
         )}
 
-        {/* Stats Cards - Professional Slate/Indigo Theme */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatsCard
-            title="Total Contracts"
-            value={stats?.totalContracts || 0}
-            link="/dashboard/contracts"
-          />
-          <StatsCard
-            title="Active Contracts"
-            value={stats?.activeContracts || 0}
-            link="/dashboard/contracts?status=active"
-          />
-          <StatsCard
-            title="For Renewal"
-            value={stats?.renewalContracts || 0}
-            link="/dashboard/contracts?status=for_renewal"
-          />
-          <StatsCard
-            title="Expired Contracts"
-            value={stats?.expiredContracts || 0}
-            link="/dashboard/contracts?status=expired"
-          />
-        </div>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_0.85fr]">
+          <AnalyticsPanel title="Total Revenue" subtitle="Revenue from recent payments" action="View Report" href="/dashboard/reports">
+            <div className="mb-3 text-lg font-semibold text-[#28334b]">₱{(stats?.totalRevenue || 0).toLocaleString()}</div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({
+                label: payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-US', { month: 'short' }) : `P${index + 1}`,
+                current: payment.totalAmount || payment.amount || 0,
+              }))}>
+                <CartesianGrid stroke="#eef0f5" vertical={false} strokeDasharray="3 4" />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#a3a9b8', fontSize: 10 }} />
+                <YAxis hide />
+                <Tooltip formatter={(value) => [`₱${Number(value).toLocaleString()}`, 'Revenue']} />
+                <Bar dataKey="current" fill="#5c68c9" radius={[2, 2, 0, 0]} barSize={12} />
+              </BarChart>
+            </ResponsiveContainer>
+            <ChartLegend items={[['#5c68c9', 'Current'], ['#d9dce7', 'Previous period']]} />
+          </AnalyticsPanel>
 
-        {/* Revenue & Spaces */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <StatsCard
-            title="Total Revenue"
-            value={`₱${(stats?.totalRevenue || 0).toLocaleString()}`}
-          />
-          <StatsCard
-            title="Pending Payments"
-            value={stats?.pendingPayments || 0}
-            link="/dashboard/payments?status=pending"
-          />
-          <StatsCard
-            title="Available Spaces"
-            value={`${stats?.availableSpaces || 0} / ${stats?.totalRentalSpaces || 0}`}
-            link="/dashboard/spaces"
-          />
-        </div>
-
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Contract Status Distribution */}
-          <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-            <h3 className="text-lg font-bold text-slate-900 mb-6">Contract Status Distribution</h3>
-            {stats && (
-              <ResponsiveContainer width="100%" height={300}>
+          <AnalyticsPanel title="Total Tenant" subtitle="Registered tenants" action="View" href="/dashboard/tenants">
+            <div className="relative flex items-center justify-center py-2">
+              <ResponsiveContainer width="100%" height={190}>
                 <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Active', value: stats.activeContracts, color: '#10b981' },
-                      { name: 'For Renewal', value: stats.renewalContracts || 0, color: '#6366f1' },
-                      { name: 'Expired', value: stats.expiredContracts, color: '#f59e0b' },
-                      { name: 'Delinquent', value: stats.delinquentContracts || 0, color: '#ef4444' },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    <Cell fill="#10b981" />
-                    <Cell fill="#6366f1" />
-                    <Cell fill="#f59e0b" />
-                    <Cell fill="#ef4444" />
+                  <Pie data={[{ name: 'Active contracts', value: stats?.activeContracts || 0 }, { name: 'Other contracts', value: Math.max((stats?.totalContracts || 0) - (stats?.activeContracts || 0), 0) }]} innerRadius={52} outerRadius={70} paddingAngle={3} dataKey="value">
+                    <Cell fill="#5c68c9" />
+                    <Cell fill="#d9dcef" />
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-            )}
-          </div>
+              <div className="pointer-events-none absolute text-center"><div className="text-2xl font-semibold text-[#28334b]">{stats?.totalTenants || 0}</div><div className="text-[10px] text-[#9aa1b3]">Tenants</div></div>
+            </div>
+          </AnalyticsPanel>
 
-          {/* Revenue Overview */}
-          <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-            <h3 className="text-lg font-bold text-slate-900 mb-6">Financial Overview</h3>
-            {stats && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Total Revenue</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">₱{(stats.totalRevenue || 0).toLocaleString()}</p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Pending Payments</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">{stats.pendingPayments}</p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200">
-                  <div>
-                    <p className="text-sm font-medium text-slate-600">Available Spaces</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">{stats.availableSpaces} / {stats.totalRentalSpaces}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <AnalyticsPanel title="Recent Activities" subtitle="Current contract status" action="View" href="/dashboard/contracts">
+            <div className="flex min-h-[190px] items-center justify-center gap-2">
+              <ActivityBubble value={stats?.delinquentContracts || 0} label="Overdue" color="#ed5b69" />
+              <ActivityBubble value={stats?.activeContracts || 0} label="Active" color="#f5a43b" large />
+              <ActivityBubble value={stats?.pendingPayments || 0} label="Pending" color="#42bdd9" />
+            </div>
+          </AnalyticsPanel>
+
+          <AnalyticsPanel title="Number of Transactions" subtitle="Recent payment activity" action="View" href="/dashboard/payments">
+            <ResponsiveContainer width="100%" height={190}>
+              <LineChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({ label: index + 1, value: payment.totalAmount || payment.amount || 0 }))}>
+                <CartesianGrid stroke="#eef0f5" vertical={false} strokeDasharray="3 4" />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#a3a9b8', fontSize: 10 }} />
+                <YAxis hide />
+                <Tooltip formatter={(value) => [`₱${Number(value).toLocaleString()}`, 'Amount']} />
+                <Line type="monotone" dataKey="value" stroke="#5c68c9" strokeWidth={2} dot={{ r: 3, fill: '#5c68c9' }} />
+              </LineChart>
+            </ResponsiveContainer>
+            <ChartLegend items={[['#5c68c9', 'Current'], ['#d9dce7', 'Previous period']]} />
+          </AnalyticsPanel>
         </div>
 
-        {/* Recent Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Payments */}
-          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border border-indigo-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-indigo-900">Recent Payments</h3>
-              <Link
-                href="/dashboard/payments"
-                className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
-              >
-                View All →
-              </Link>
-            </div>
-            {stats?.recentPayments && stats.recentPayments.length > 0 ? (
-              <div className="space-y-3">
-                {stats.recentPayments.slice(0, 5).map((payment) => (
-                  <div
-                    key={payment.id}
-                    className="flex items-center justify-between py-3 border-b border-indigo-200 last:border-0 hover:bg-indigo-100 px-2 rounded transition-colors"
-                  >
-                    <div>
-                      <div className="font-semibold text-sm text-indigo-900">
-                        {payment.paymentFor}
-                      </div>
-                      <div className="text-xs text-indigo-600 mt-1">
-                        {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : 'N/A'}
-                      </div>
-                    </div>
-                    <div className="text-sm font-bold text-indigo-700">
-                      ₱{(payment.totalAmount ?? 0).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-indigo-600 text-center py-8 font-medium">
-                No recent payments
-              </p>
-            )}
-          </div>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <PanelCard
+            title="Recent Payments"
+            viewAllHref="/dashboard/payments"
+            items={stats?.recentPayments?.slice(0, 5).map((payment) => ({
+              id: payment.id ?? payment.paymentFor ?? 'payment',
+              primary: payment.paymentFor || 'Payment',
+              secondary: formatDashboardDate(payment.paymentDate || payment.payment_date || payment.createdAt || payment.created_at),
+              value: formatDashboardAmount(payment.totalAmount ?? payment.total_amount ?? payment.amountPaid ?? payment.amount_paid ?? payment.amount),
+            })) || []}
+            emptyText="No recent payments"
+          />
 
-          {/* Expiring Contracts */}
-          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border border-indigo-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-indigo-900">
-                Expiring Soon
-              </h3>
-              <Link
-                href="/dashboard/contracts"
-                className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
-              >
-                View All →
-              </Link>
-            </div>
-            {stats?.expiringContracts && stats.expiringContracts.length > 0 ? (
-              <div className="space-y-3">
-                {stats.expiringContracts.slice(0, 5).map((contract) => (
-                  <div
-                    key={contract.id}
-                    className="flex items-center justify-between py-3 border-b border-indigo-200 last:border-0 hover:bg-indigo-100 px-2 rounded transition-colors"
-                  >
-                    <div>
-                      <div className="font-semibold text-sm text-indigo-900">
-                        {contract.contractNumber}
-                      </div>
-                      <div className="text-xs text-indigo-600">
-                        {contract.rentalSpace?.spaceNumber}
-                      </div>
-                    </div>
-                    <div className="text-xs font-medium text-indigo-700">
-                      Expires: {contract.endDate ? new Date(contract.endDate).toLocaleDateString() : 'N/A'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-indigo-600 text-center py-8 font-medium">
-                No expiring contracts
-              </p>
-            )}
-          </div>
-
-          {/* Contracts for Renewal */}
-          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border border-indigo-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-indigo-900">
-                For Renewal Soon
-              </h3>
-              <Link
-                href="/dashboard/contracts?status=for_renewal"
-                className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
-              >
-                View All →
-              </Link>
-            </div>
-            {stats?.renewalContracts && stats.renewalContracts > 0 && stats?.renewalContractsList && stats.renewalContractsList.length > 0 ? (
-              <div className="space-y-3">
-                {stats.renewalContractsList.slice(0, 5).map((contract: any) => (
-                  <div
-                    key={contract.id}
-                    className="flex items-center justify-between py-3 border-b border-indigo-200 last:border-0 hover:bg-indigo-100 px-2 rounded transition-colors"
-                  >
-                    <div>
-                      <div className="font-semibold text-sm text-indigo-900">
-                        {contract.contractNumber}
-                      </div>
-                      <div className="text-xs text-indigo-600">
-                        {contract.rentalSpace?.spaceNumber || contract.rentalSpace?.name}
-                      </div>
-                    </div>
-                    <div className="text-xs font-medium text-indigo-700">
-                      Expires: {contract.endDate ? new Date(contract.endDate).toLocaleDateString() : 'N/A'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-indigo-600 text-center py-8 font-medium">
-                ✓ No contracts requiring renewal
-              </p>
-            )}
-          </div>
+          <PanelCard
+            title="Expiring Soon"
+            viewAllHref="/dashboard/contracts"
+            items={stats?.expiringContracts?.slice(0, 5).map((contract) => ({
+              id: contract.id ?? contract.contractNumber ?? 'contract',
+              primary: contract.contractNumber || 'Contract',
+              secondary: contract.rentalSpace?.spaceNumber || 'Space not assigned',
+              value: `Expires: ${formatDashboardDate(contract.endDate || contract.end_date)}`,
+            })) || []}
+            emptyText="No expiring contracts"
+          />
         </div>
 
-        {/* Quick Actions */}
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition-shadow">
-          <h3 className="text-lg font-bold text-slate-900 mb-6">
-            Quick Actions
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <QuickActionButton
-              href="/dashboard/contracts/new"
-              label="New Contract"
-            />
-            <QuickActionButton
-              href="/dashboard/payments/new"
-              label="Record Payment"
-            />
-            <QuickActionButton
-              href="/dashboard/tenants/new"
-              label="Add Tenant"
-            />
-            <QuickActionButton
-              href="/dashboard/reports"
-              label="Generate Report"
-            />
+        <div className="rounded-md border border-[#e8eaf1] bg-white p-5 shadow-[0_10px_28px_rgba(39,48,80,0.04)]">
+          <h3 className="mb-5 text-base font-semibold text-[#28334b]">Quick Actions</h3>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <QuickActionButton href="/dashboard/contracts/new" label="New Contract" />
+            <QuickActionButton href="/dashboard/payments/new" label="Record Payment" />
+            <QuickActionButton href="/dashboard/tenants/new" label="Add Tenant" />
+            <QuickActionButton href="/dashboard/reports" label="Generate Report" />
           </div>
         </div>
       </div>
@@ -373,50 +222,124 @@ export default function DashboardPage() {
   )
 }
 
-function StatsCard({
+function AnalyticsPanel({
   title,
-  value,
-  link,
+  subtitle,
+  action,
+  href,
+  children,
 }: {
   title: string
-  value: string | number
-  link?: string
+  subtitle: string
+  action: string
+  href: string
+  children: React.ReactNode
 }) {
-  const content = (
-    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border border-indigo-200 shadow-sm p-6 hover:shadow-lg transition-all hover:scale-102 duration-200">
-      <div>
-        <p className="text-sm font-semibold text-indigo-600 mb-2">{title}</p>
-        <p className="text-4xl font-bold text-indigo-900">{value}</p>
+  return (
+    <section className="rounded-md border border-[#e8eaf1] bg-white p-5 shadow-[0_10px_28px_rgba(39,48,80,0.04)]">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-[#28334b]">{title}</h2>
+          <p className="mt-1 text-[10px] text-[#9aa1b3]">{subtitle}</p>
+        </div>
+        <Link href={href} className="rounded-md border border-[#e8eaf1] px-3 py-1.5 text-[10px] font-semibold text-[#5964c7] transition hover:bg-[#eef0ff]">
+          {action}
+        </Link>
       </div>
+      {children}
+    </section>
+  )
+}
+
+function ChartLegend({ items }: { items: string[][] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-4 text-[10px] text-[#8d95a8]">
+      {items.map(([color, label]) => (
+        <span key={label} className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />{label}</span>
+      ))}
+    </div>
+  )
+}
+
+function ActivityBubble({ value, label, color, large = false }: { value: number; label: string; color: string; large?: boolean }) {
+  return (
+    <div className={`flex flex-col items-center justify-center rounded-full text-white shadow-[0_4px_10px_rgba(39,48,80,0.12)] ${large ? 'h-32 w-32' : 'h-20 w-20'}`} style={{ backgroundColor: color }}>
+      <span className={large ? 'text-2xl' : 'text-lg'}>{value}</span>
+      <span className="text-[10px]">{label}</span>
+    </div>
+  )
+}
+
+function StatsCard({ title, value, link }: { title: string; value: string | number; link?: string }) {
+  const card = (
+    <div className="rounded-md border border-[#e8eaf1] bg-white p-5 shadow-[0_8px_22px_rgba(39,48,80,0.04)] transition-transform duration-200 hover:-translate-y-0.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#5663c4]">{title}</p>
+      <p className="mt-3 text-2xl font-semibold text-[#28334b]">{value}</p>
     </div>
   )
 
   if (link) {
-    return (
-      <Link href={link} className="block">
-        {content}
-      </Link>
-    )
+    return <Link href={link}>{card}</Link>
   }
 
-  return content
+  return card
 }
 
-function QuickActionButton({
-  href,
-  label,
+function MetricRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-md border border-[#e8eaf1] bg-[#fafaff] p-4">
+      <span className="text-xs text-[#7d8699]">{label}</span>
+      <span className="text-base font-semibold text-[#28334b]">{value}</span>
+    </div>
+  )
+}
+
+function PanelCard({
+  title,
+  viewAllHref,
+  items,
+  emptyText,
 }: {
-  href: string
-  label: string
+  title: string
+  viewAllHref: string
+  items: Array<{ id: string | number; primary: string; secondary: string; value: string }>
+  emptyText: string
 }) {
+  return (
+    <div className="rounded-md border border-[#e8eaf1] bg-white p-5 shadow-[0_10px_28px_rgba(39,48,80,0.04)]">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-[#28334b]">{title}</h3>
+        <Link href={viewAllHref} className="text-[11px] font-semibold text-[#5148e5] hover:text-[#4038c7]">
+          View All →
+        </Link>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-4 border-b border-[#eef0f5] px-1 py-3 last:border-0">
+              <div>
+                <div className="text-xs font-semibold text-[#46516b]">{item.primary}</div>
+                <div className="mt-1 text-[11px] text-[#9aa1b3]">{item.secondary}</div>
+              </div>
+              <div className="text-[11px] font-semibold text-[#5148e5]">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="py-10 text-center text-sm text-slate-500">{emptyText}</p>
+      )}
+    </div>
+  )
+}
+
+function QuickActionButton({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="flex flex-col items-center justify-center p-6 border border-indigo-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-100 bg-white transition-all duration-200 hover:shadow-md"
+      className="flex min-h-[88px] items-center justify-center rounded-md border border-[#e8eaf1] bg-[#fafaff] px-4 text-center text-xs font-semibold text-[#657089] transition hover:border-[#bfc4f4] hover:bg-[#eef0ff] hover:text-[#5148e5]"
     >
-      <span className="text-sm font-semibold text-indigo-700 text-center">
-        {label}
-      </span>
+      {label}
     </Link>
   )
 }

@@ -233,7 +233,7 @@ export default function AuditLogsPage() {
           </p>
         </div>
 
-        {/* Audit Logs Grid */}
+        {/* Audit Logs List */}
         {isLoading ? (
           <div className="bg-white rounded-lg shadow p-8 text-center">
             <p className="text-gray-600">Loading audit logs...</p>
@@ -243,43 +243,42 @@ export default function AuditLogsPage() {
             <p className="text-gray-600">No audit logs found</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="overflow-hidden rounded-md border border-[#e8eaf1] bg-white divide-y divide-[#eef0f5]">
             {filteredLogs.map((log) => (
-              <div key={log.id} className="bg-white rounded-lg shadow hover:shadow-lg p-6 border-l-4 border-blue-600 transition-all">
+              <div key={log.id} className="grid grid-cols-1 gap-5 px-5 py-5 transition-colors hover:bg-[#fafaff] lg:grid-cols-[180px_150px_minmax(0,1fr)_220px] lg:items-start">
                 {/* Header with timestamp and badges */}
-                <div className="mb-4 pb-4 border-b border-gray-200">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="text-xs text-gray-600 mb-1">Timestamp</div>
-                      <div className="text-sm font-semibold text-gray-900">
+                <div className="lg:border-r lg:border-[#eef0f5] lg:pr-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-[#9aa1b3] mb-1">Timestamp</div>
+                  <div className="text-xs font-semibold text-[#46516b]">
                         {(log.createdAt || log.created_at) ? new Date(log.createdAt || log.created_at!).toLocaleDateString() : 'N/A'}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {(log.createdAt || log.created_at) ? new Date(log.createdAt || log.created_at!).toLocaleTimeString() : 'N/A'}
-                      </div>
-                    </div>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getActionBadge(log.action)}`}>
+                  <div className="text-[11px] text-[#9aa1b3]">
+                        {(log.createdAt || log.created_at) ? new Date(log.createdAt || log.created_at!).toLocaleTimeString() : 'N/A'}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.12em] text-[#9aa1b3]">Event</div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${getActionBadge(log.action)}`}>
                       {log.action.charAt(0).toUpperCase() + log.action.slice(1)}
                     </span>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getEntityBadge(log.modelType || log.model_type || 'N/A')}`}>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${getEntityBadge(log.modelType || log.model_type || 'N/A')}`}>
                       {log.modelType || log.model_type || 'N/A'}
                     </span>
                   </div>
                 </div>
 
                 {/* User Information */}
-                <div className="mb-4 pb-4 border-b border-gray-200">
-                  <div className="text-xs text-gray-600 mb-2">User</div>
-                  <div className="text-sm font-medium text-gray-900">{log.user?.name || 'Unknown'}</div>
-                  <div className="text-xs text-gray-500">{log.user?.email || 'N/A'}</div>
+                <div>
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[#9aa1b3]">Description</div>
+                  <p className="break-words text-xs text-[#46516b]">{log.description}</p>
                 </div>
 
-                {/* Description */}
-                <div className="mb-4 pb-4 border-b border-gray-200">
-                  <div className="text-xs text-gray-600 mb-2">Description</div>
-                  <p className="text-sm text-gray-900 break-words">{log.description}</p>
+                <div>
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[#9aa1b3]">User</div>
+                  <div className="text-xs font-medium text-[#46516b]">{log.user?.name || 'Unknown'}</div>
+                  <div className="text-[11px] text-[#9aa1b3]">{log.user?.email || 'N/A'}</div>
                 </div>
 
                 {/* Changes Details */}

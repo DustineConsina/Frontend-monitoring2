@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
+import { FishLoader } from '@/components/FishLoader'
 
 interface ContractData {
   id: number
@@ -96,18 +97,15 @@ export default function PublicContractPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
-          <p className="mt-4 text-gray-600">Loading contract details...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-[#eef0f7]">
+        <FishLoader label="Loading contract details" />
       </div>
     )
   }
 
   if (error || !contract) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#eef0f7]">
         <div className="bg-red-50 border border-red-200 rounded-lg p-8 max-w-md">
           <h1 className="text-2xl font-bold text-red-800 mb-2">Contract Not Found</h1>
           <p className="text-red-700">{error || 'Unable to load contract details'}</p>
@@ -124,10 +122,10 @@ export default function PublicContractPage() {
     : 'bg-yellow-100 text-yellow-800'
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_8%_0%,rgba(81,72,229,0.08),transparent_24%),linear-gradient(135deg,#f5f6fb_0%,#eef0f7_58%,#e9ecf4_100%)] py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
+        <div className="rounded-xl border border-[#e3e5ee] bg-white p-8 shadow-[0_16px_38px_rgba(39,48,80,0.09)] mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">

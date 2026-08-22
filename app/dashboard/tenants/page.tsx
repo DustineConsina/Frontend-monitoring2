@@ -19,7 +19,6 @@ export default function TenantsPage() {
     firstName: '',
     lastName: '',
     email: '',
-    password: '',
     contactNumber: '',
     address: '',
     businessName: '',
@@ -58,7 +57,9 @@ export default function TenantsPage() {
         [name]: (e.target as HTMLInputElement).files?.[0] || null 
       }))
     } else {
-      const { value } = e.target
+      const value = name === 'contactNumber'
+        ? e.target.value.replace(/\D/g, '').slice(0, 11)
+        : e.target.value
       setFormData((prev) => ({ ...prev, [name]: value }))
     }
   }
@@ -69,8 +70,13 @@ export default function TenantsPage() {
     setSuccessMessage(null)
 
     // Basic validation
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+    if (!formData.firstName || !formData.lastName || !formData.email) {
       setFormError('Please fill in all required fields')
+      return
+    }
+
+    if (formData.contactNumber && !/^09\d{9}$/.test(formData.contactNumber)) {
+      setFormError('Contact number must start with 09 and contain exactly 11 digits.')
       return
     }
 
@@ -81,7 +87,6 @@ export default function TenantsPage() {
         first_name: formData.firstName,
         last_name: formData.lastName,
         email: formData.email,
-        password: formData.password,
         contact_number: formData.contactNumber,
         address: formData.address,
         business_name: formData.businessName,
@@ -120,7 +125,6 @@ export default function TenantsPage() {
         firstName: '',
         lastName: '',
         email: '',
-        password: '',
         contactNumber: '',
         address: '',
         businessName: '',
@@ -154,7 +158,6 @@ export default function TenantsPage() {
         firstName: '',
         lastName: '',
         email: '',
-        password: '',
         contactNumber: '',
         address: '',
         businessName: '',
@@ -317,11 +320,11 @@ export default function TenantsPage() {
       {/* Add Tenant Modal */}
       {showModal && (
         <>
-          <div className="fixed inset-0 backdrop-blur-sm z-40" onClick={closeModal} />
+          <div className="fixed inset-0 z-40 bg-[#28334b]/35 backdrop-blur-sm" onClick={closeModal} />
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="modal-shell max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b p-6 flex justify-between items-center">
+            <div className="modal-header sticky top-0 flex items-center justify-between">
               <h3 className="text-xl font-bold text-gray-900">Add New Tenant</h3>
               <button
                 onClick={closeModal}
@@ -333,7 +336,7 @@ export default function TenantsPage() {
             </div>
 
             {/* Modal Content */}
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            <form onSubmit={handleSubmit} className="modal-body space-y-6">
               {/* Success Message */}
               {successMessage && (
                 <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded">
@@ -363,7 +366,7 @@ export default function TenantsPage() {
               )}
 
               {/* Personal Information Section */}
-              <div>
+              <div className="form-section">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -400,7 +403,7 @@ export default function TenantsPage() {
               </div>
 
               {/* Contact Information Section */}
-              <div>
+              <div className="form-section">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h4>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -427,16 +430,20 @@ export default function TenantsPage() {
                       name="contactNumber"
                       value={formData.contactNumber}
                       onChange={handleChange}
-                      placeholder="+63 9xx xxx xxxx"
+                      placeholder="09123456789"
+                      maxLength={11}
+                      pattern="09[0-9]{9}"
+                      inputMode="numeric"
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />
+                    <p className="mt-1 text-xs text-gray-500">Optional. Enter 11 digits starting with 09.</p>
                   </div>
                 </div>
               </div>
 
               {/* Address Information Section */}
-              <div>
+              <div className="form-section">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Address Information</h4>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -457,7 +464,7 @@ export default function TenantsPage() {
               </div>
 
               {/* Business Information Section */}
-              <div>
+              <div className="form-section">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Business Information</h4>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -519,31 +526,8 @@ export default function TenantsPage() {
                 </div>
               </div>
 
-              {/* Account Credentials Section */}
-              <div>
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Account Credentials</h4>
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      placeholder="••••••••"
-                      required
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Minimum 8 characters recommended</p>
-                  </div>
-                </div>
-              </div>
-
               {/* Profile Picture Section */}
-              <div>
+              <div className="form-section">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Profile Picture (Optional)</h4>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -567,7 +551,7 @@ export default function TenantsPage() {
               </div>
 
               {/* Modal Actions */}
-              <div className="flex gap-2 pt-4 border-t">
+              <div className="modal-actions">
                 <button
                   type="button"
                   onClick={closeModal}
@@ -581,9 +565,9 @@ export default function TenantsPage() {
                   type="submit"
                   disabled={isSubmitting}
                   title="Create Tenant"
-                  className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center rounded-md bg-[#5148e5] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4038c7] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? '⏳' : '+'}
+                  {isSubmitting ? 'Creating...' : 'Create Tenant'}
                 </button>
               </div>
             </form>

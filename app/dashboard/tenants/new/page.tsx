@@ -15,7 +15,6 @@ export default function NewTenantPage() {
     firstName: '',
     lastName: '',
     email: '',
-    password: '',
     contactNumber: '',
     address: '',
     businessName: '',
@@ -34,7 +33,6 @@ export default function NewTenantPage() {
       firstName: 'First Name',
       lastName: 'Last Name',
       email: 'Email Address',
-      password: 'Password',
       contactPerson: 'Contact Person',
       businessName: 'Business Name',
     }
@@ -45,6 +43,11 @@ export default function NewTenantPage() {
     
     if (missingFields.length > 0) {
       alert(`Please fill in the following required fields:\n\n${missingFields.join('\n')}`)
+      return
+    }
+
+    if (formData.contactNumber && !/^09\d{9}$/.test(formData.contactNumber)) {
+      alert('Contact number must start with 09 and contain exactly 11 digits.')
       return
     }
     
@@ -73,9 +76,13 @@ export default function NewTenantPage() {
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const value = e.target.name === 'contactNumber'
+      ? e.target.value.replace(/\D/g, '').slice(0, 11)
+      : e.target.value
+
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [e.target.name]: value,
     })
   }
 
@@ -98,11 +105,11 @@ export default function NewTenantPage() {
         </div>
 
         {/* Form */}
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="form-shell p-6 lg:p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Personal Information */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h3>
+            <div className="form-section">
+              <h3 className="form-section-title">Personal Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -137,8 +144,8 @@ export default function NewTenantPage() {
             </div>
 
             {/* Contact Information */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+            <div className="form-section">
+              <h3 className="form-section-title">Contact Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -157,16 +164,20 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Phone Number
+                    Contact Number
                   </label>
                   <input
                     type="tel"
                     name="contactNumber"
                     value={formData.contactNumber}
                     onChange={handleChange}
+                    maxLength={11}
+                    pattern="09[0-9]{9}"
+                    inputMode="numeric"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="09123456789"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Optional. Enter 11 digits starting with 09.</p>
                 </div>
 
                 <div>
@@ -187,8 +198,8 @@ export default function NewTenantPage() {
             </div>
 
             {/* Business Information */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Business Information</h3>
+            <div className="form-section">
+              <h3 className="form-section-title">Business Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -236,7 +247,7 @@ export default function NewTenantPage() {
             </div>
 
             {/* Address */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Residential Address
@@ -266,33 +277,8 @@ export default function NewTenantPage() {
               </div>
             </div>
 
-            {/* Account Credentials */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Credentials</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Password <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    name="password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    required
-                    minLength={8}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder="Minimum 8 characters"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Minimum 8 characters. Tenant will use this password to login
-                  </p>
-                </div>
-              </div>
-            </div>
-
             {/* Action Buttons */}
-            <div className="flex gap-2 justify-end pt-4 border-t">
+            <div className="form-actions flex gap-2 justify-end">
               <Link
                 href="/dashboard/tenants"
                 title="Cancel"
@@ -304,9 +290,9 @@ export default function NewTenantPage() {
                 type="submit"
                 disabled={isLoading}
                 title="Create Tenant"
-                className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center justify-center rounded-md bg-[#5148e5] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4038c7] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? '⏳' : '+'}
+                {isLoading ? 'Creating...' : 'Create Tenant'}
               </button>
             </div>
           </form>

@@ -6,11 +6,41 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { Contract } from '@/types'
+import { showGlobalNotice } from '@/lib/global-notice'
+
+function getBillingPeriod(dueDate: string): { start: string; end: string } | null {
+  const parts = dueDate.split('-').map(Number)
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null
+
+  const [year, month, day] = parts
+  const dueDateValue = new Date(year, month - 1, day)
+  if (dueDateValue.getFullYear() !== year || dueDateValue.getMonth() !== month - 1 || dueDateValue.getDate() !== day) return null
+
+  const endDate = new Date(year, month - 1, day)
+  const previousMonth = new Date(year, month - 2, 1)
+  const lastDayOfPreviousMonth = new Date(previousMonth.getFullYear(), previousMonth.getMonth() + 1, 0).getDate()
+  const startDate = new Date(previousMonth.getFullYear(), previousMonth.getMonth(), Math.min(day, lastDayOfPreviousMonth))
+
+  const formatDate = (date: Date) => {
+    const dateYear = date.getFullYear()
+    const dateMonth = String(date.getMonth() + 1).padStart(2, '0')
+    const dateDay = String(date.getDate()).padStart(2, '0')
+    return `${dateYear}-${dateMonth}-${dateDay}`
+  }
+
+  return { start: formatDate(startDate), end: formatDate(endDate) }
+}
+
+function displayDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
 export default function NewPaymentPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [contracts, setContracts] = useState<Contract[]>([])
+  const [existingPayments, setExistingPayments] = useState<any[]>([])
   const [loadingData, setLoadingData] = useState(true)
 
   const [formData, setFormData] = useState({
@@ -62,21 +92,11 @@ export default function NewPaymentPage() {
         })
       }
       
-      // Fetch payments
+      // Existing contracts remain selectable so each monthly billing period can be recorded.
+      const availableContracts = Array.isArray(contractsArray) ? contractsArray : []
+
       const paymentsDataResp = await apiClient.getPayments()
       const paymentsArray = paymentsDataResp.data?.data || paymentsDataResp.data || paymentsDataResp
-
-      // Get contract IDs that already have payments
-      const contractsWithPayments = new Set(
-        (Array.isArray(paymentsArray) ? paymentsArray : [])
-          .map((p: any) => p.contract_id)
-          .filter(Boolean)
-      )
-
-      // Filter contracts: exclude those with payments  
-      const availableContracts = (Array.isArray(contractsArray) ? contractsArray : []).filter(
-        (c: any) => !contractsWithPayments.has(c.id)
-      )
 
       console.log('Available contracts:', availableContracts.map(c => ({
         id: c.id,
@@ -85,6 +105,7 @@ export default function NewPaymentPage() {
       })))
       
       setContracts(availableContracts)
+      setExistingPayments(Array.isArray(paymentsArray) ? paymentsArray : [])
     } catch (err: any) {
       console.error('Error loading contracts:', err)
       alert(err.message || 'Failed to load contracts')
@@ -107,6 +128,20 @@ export default function NewPaymentPage() {
         return
       }
 
+      const billingPeriod = getBillingPeriod(formData.dueDate)
+      const duplicatePaidPayment = existingPayments.find((payment) => {
+        const paymentContractId = payment.contractId || payment.contract_id || payment.contract?.id
+        const paymentPeriodStart = String(payment.billingPeriodStart || payment.billing_period_start || getBillingPeriod(payment.dueDate || payment.due_date || '')?.start || '').slice(0, 10)
+        return String(paymentContractId) === String(selectedContract.id) &&
+          billingPeriod?.start === paymentPeriodStart
+      })
+
+      if (duplicatePaidPayment) {
+        showGlobalNotice('Payment already recorded', `The billing period ${displayDate(billingPeriod!.start)} - ${displayDate(billingPeriod!.end)} already has a payment recorded. A duplicate payment cannot be added.`)
+        setIsLoading(false)
+        return
+      }
+
       // Map form data to backend expected format with proper snake_case field naming
       const paymentData: any = {
         contract_id: parseInt(formData.contractId),
@@ -115,6 +150,11 @@ export default function NewPaymentPage() {
         due_date: formData.dueDate,
         payment_method: formData.paymentMethod,
         remarks: formData.notes,
+      }
+
+      if (billingPeriod) {
+        paymentData.billing_period_start = billingPeriod.start
+        paymentData.billing_period_end = billingPeriod.end
       }
 
       // Only add payment_date if provided
@@ -126,7 +166,7 @@ export default function NewPaymentPage() {
       await apiClient.createPayment(paymentData)
       router.push('/dashboard/payments')
     } catch (err: any) {
-      alert(err.message || 'Failed to record payment')
+      showGlobalNotice('Payment could not be recorded', err.message || 'Please check the payment details and try again.')
     } finally {
       setIsLoading(false)
     }
@@ -237,7 +277,7 @@ export default function NewPaymentPage() {
         </div>
 
         {/* Form */}
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="form-shell p-6 lg:p-8">
           {loadingData ? (
             <div className="text-center py-12">
               <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
@@ -246,7 +286,7 @@ export default function NewPaymentPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Contract Selection */}
-              <div>
+              <div className="form-section">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Contract <span className="text-red-500">*</span>
                 </label>
@@ -268,7 +308,7 @@ export default function NewPaymentPage() {
               </div>
 
               {/* Payment Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Amount (₱) <span className="text-red-500">*</span>
@@ -308,7 +348,7 @@ export default function NewPaymentPage() {
               </div>
 
               {/* Dates */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Due Date <span className="text-red-500">*</span>
@@ -335,10 +375,22 @@ export default function NewPaymentPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                   />
                 </div>
+
+                <div className="md:col-span-2 rounded-md border border-[#e8eaf1] bg-[#fafaff] p-4">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9aa1b3]">Billing Period</p>
+                  {getBillingPeriod(formData.dueDate) ? (
+                    <p className="text-sm font-semibold text-[#28334b]">
+                      {displayDate(getBillingPeriod(formData.dueDate)!.start)} - {displayDate(getBillingPeriod(formData.dueDate)!.end)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[#9aa1b3]">Select a due date to calculate the monthly billing period.</p>
+                  )}
+                  <p className="mt-1 text-[11px] text-[#9aa1b3]">Each payment covers one month from the due date to the same day next month.</p>
+                </div>
               </div>
 
               {/* Notes */}
-              <div>
+              <div className="form-section">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Notes
                 </label>
@@ -353,7 +405,7 @@ export default function NewPaymentPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-2 justify-end pt-4 border-t">
+              <div className="form-actions flex gap-2 justify-end">
                 <Link
                   href="/dashboard/payments"
                   title="Cancel"
@@ -365,7 +417,7 @@ export default function NewPaymentPage() {
                   type="submit"
                   disabled={isLoading}
                   title="Record Payment"
-                  className="px-4 py-2 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 flex items-center justify-center bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? '⏳ Saving...' : 'Record'}
                 </button>

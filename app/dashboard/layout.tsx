@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLoading } from '@/contexts/LoadingContext'
 import { PFDALogo } from '@/components/PFDALogo'
 import { useState } from 'react'
+import { Bell, Menu, X } from 'lucide-react'
 
 export default function DashboardLayout({
   children,
@@ -26,11 +27,9 @@ export default function DashboardLayout({
     }
   }
 
-  // Different navigation based on user role
   let navigation = []
-  
+
   if (user?.role && user.role.toUpperCase() === 'CASHIER') {
-    // Cashier-specific navigation
     navigation = [
       { name: 'Collection Dashboard', href: '/dashboard/cashier' },
       { name: 'Payments', href: '/dashboard/payments' },
@@ -38,7 +37,6 @@ export default function DashboardLayout({
       { name: 'Notifications', href: '/dashboard/notifications' },
     ]
   } else if (user?.role && (user.role.toUpperCase() === 'ADMIN' || user.role.toUpperCase() === 'STAFF')) {
-    // Admin/Staff navigation
     navigation = [
       { name: 'Dashboard', href: '/dashboard' },
       { name: 'Contracts', href: '/dashboard/contracts' },
@@ -51,7 +49,6 @@ export default function DashboardLayout({
       { name: 'Audit Logs', href: '/dashboard/audit-logs' },
     ]
   } else {
-    // Tenant navigation
     navigation = [
       { name: 'Dashboard', href: '/dashboard' },
       { name: 'My Contracts', href: '/dashboard/contracts' },
@@ -62,121 +59,93 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-slate-100">
-      {/* Sidebar */}
-      <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white shadow-2xl transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static ${
+    <div className="flex h-screen bg-[#f7f8fc] text-[#28334b]">
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 border-r border-[#e3e5ee] bg-[#f0f1f7] shadow-[8px_0_24px_rgba(39,48,80,0.03)] transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="flex items-center justify-center h-24 px-4 border-b border-gray-700/50">
-            <Link href="/dashboard" className="flex flex-col items-center gap-2 hover:opacity-90 transition-opacity w-full">
-              <div className="w-16 h-16" style={{ transform: 'scale(0.7)' }}>
-                <PFDALogo />
+        <div className="flex h-full flex-col">
+          <div className="border-b border-[#e3e5ee] px-4 py-5">
+            <Link href="/dashboard" className="flex items-center gap-3 transition-opacity hover:opacity-90">
+              <div className="rounded-full bg-[#5c68c9] p-1 shadow-[0_5px_12px_rgba(92,104,201,0.24)]">
+                <div className="h-12 w-12" style={{ transform: 'scale(0.8)' }}>
+                  <PFDALogo />
+                </div>
               </div>
-              <div className="text-center">
-                <div className="font-bold text-sm">PFDA</div>
-                <div className="text-xs text-gray-400">Contract System</div>
+              <div>
+                <div className="text-[11px] font-bold tracking-[0.1em] text-[#5663c4]">PFDA</div>
+                <div className="text-[9px] uppercase tracking-[0.16em] text-[#9ba2b3]">Contract Monitor</div>
               </div>
             </Link>
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto py-8 px-3">
-            <div className="space-y-2">
+          <nav className="flex-1 overflow-y-auto px-3 py-6">
+            <div className="space-y-1">
+              <div className="mb-3 px-3 text-[9px] uppercase tracking-[0.18em] text-[#9aa1b3]">Menu</div>
               {navigation.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
-                    className={`flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    className={`flex items-center rounded-md px-3 py-2.5 text-[13px] font-medium transition-all duration-200 ${
                       isActive
-                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg'
-                        : 'text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                        ? 'bg-[#dfe2f8] text-[#5964c7] shadow-[0_6px_14px_rgba(81,72,229,0.08)]'
+                        : 'text-[#858da0] hover:bg-white hover:text-[#5964c7]'
                     }`}
                     onClick={() => setIsSidebarOpen(false)}
                   >
-                    <span className="font-medium">{item.name}</span>
+                    <span>{item.name}</span>
                   </Link>
                 )
               })}
             </div>
           </nav>
 
-          {/* User Info */}
-          <div className="border-t border-gray-700/50 p-4 bg-gray-800/50">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-400 to-indigo-500 rounded-lg flex items-center justify-center text-white font-semibold text-sm shadow-md">
+          <div className="border-t border-[#e3e5ee] bg-[#eaebf2] p-4">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#5c68c9] text-xs font-bold text-white">
                 {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-white truncate">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-bold text-[#46516b]">
                   {user?.firstName} {user?.lastName}
                 </div>
-                <div className="text-xs text-gray-400 truncate capitalize">{user?.role}</div>
+                <div className="truncate text-[9px] uppercase tracking-[0.15em] text-[#9ba2b3]">{user?.role}</div>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="w-full px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors duration-200"
+              className="w-full rounded-md border border-[#d9dce7] bg-white px-4 py-2 text-[11px] font-semibold text-[#7b8397] transition hover:bg-[#f6f6fa]"
             >
               Logout
             </button>
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="bg-white border-b border-gray-100 h-16 flex items-center px-4 lg:px-8 shadow-sm">
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex min-h-16 items-center border-b border-[#e5e7ef] bg-white px-4 lg:px-8">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="lg:hidden mr-4 text-gray-600 hover:text-gray-900 hover:bg-gray-100 p-2 rounded-lg transition-colors"
+            className="mr-4 rounded-md border border-[#e1e3ed] p-2 text-[#6d7690] hover:bg-[#f2f3f8] lg:hidden"
           >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 6h16M4 12h16M4 18h16"
-              />
-            </svg>
+            {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <div className="flex-1">
-            <h1 className="text-lg font-bold text-gray-900">
-              PFDA Contract Monitoring System
-            </h1>
-            <p className="text-xs text-gray-500 font-medium">Bulan, Sorsogon Fish Port</p>
-          </div>
-          <div className="text-sm font-semibold text-gray-700 bg-gray-50 px-4 py-2 rounded-lg">
-            {new Date().toLocaleDateString('en-US', {
-              weekday: 'short',
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            })}
+
+          <div className="ml-auto flex items-center gap-4 text-[#7d8699]">
+            <Bell className="h-4 w-4" />
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 bg-slate-50">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-[#eef0f7] p-5 lg:p-8">
+          {children}
+        </main>
       </div>
 
-      {/* Overlay for mobile */}
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-slate-900/20 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
     </div>
   )

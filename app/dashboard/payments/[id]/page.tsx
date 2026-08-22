@@ -522,9 +522,9 @@ export default function PaymentDetailPage() {
 
         {/* Edit Payment Modal */}
         {isEditingModalOpen && canEditPayments && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
-              <h3 className="text-2xl font-bold mb-6 text-gray-900">Record Payment</h3>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/40 p-4 backdrop-blur-sm">
+            <div className="modal-shell p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <h3 className="modal-header -mx-8 -mt-8 mb-6">Record Payment</h3>
 
               <div className="space-y-4">
                 {/* Show Current Balance */}
@@ -580,7 +580,7 @@ export default function PaymentDetailPage() {
                   />
                 </div>
 
-                <div className="flex gap-2 pt-6">
+                <div className="modal-actions pt-6">
                   <button
                     onClick={handleUpdatePayment}
                     disabled={isUpdating || !editFormData.amount_to_pay}

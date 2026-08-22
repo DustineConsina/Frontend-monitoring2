@@ -94,10 +94,10 @@ export default function MessagesPage() {
 
         {/* Compose Message Modal */}
         {showCompose && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/40 p-4 backdrop-blur-sm">
+            <div className="modal-shell w-full max-w-2xl">
+              <div className="modal-body">
+                <div className="modal-header -mx-6 -mt-6 mb-6 flex items-center justify-between">
                   <h3 className="text-xl font-semibold text-gray-900">New Message</h3>
                   <button
                     onClick={() => setShowCompose(false)}
@@ -151,7 +151,7 @@ export default function MessagesPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
                     />
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="modal-actions">
                     <button
                       type="button"
                       onClick={() => setShowCompose(false)}

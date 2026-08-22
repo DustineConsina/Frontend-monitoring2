@@ -188,7 +188,7 @@ export default function EditContractPage() {
   return (
     <ProtectedRoute>
       {/* Modal Overlay with Blurred Background */}
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={() => router.push(`/dashboard/contracts/${contractId}`)} />
+      <div className="fixed inset-0 z-40 bg-[#28334b]/40 backdrop-blur-sm" onClick={() => router.push(`/dashboard/contracts/${contractId}`)} />
       
       {/* Success Toast */}
       {successMessage && (
@@ -201,7 +201,7 @@ export default function EditContractPage() {
 
       {/* Modal Content */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="form-shell w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl">
           {/* Modal Header */}
           <div className="sticky top-0 bg-white border-b border-gray-200 p-6">
             <div className="flex items-center justify-between">
@@ -237,7 +237,7 @@ export default function EditContractPage() {
             ) : (
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Tenant Selection */}
-                <div>
+                <div className="form-section">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tenant <span className="text-red-500">*</span>
                   </label>
@@ -262,7 +262,7 @@ export default function EditContractPage() {
                 </div>
 
                 {/* Rental Space Selection */}
-                <div>
+                <div className="form-section">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Rental Space <span className="text-red-500">*</span>
                   </label>
@@ -291,7 +291,7 @@ export default function EditContractPage() {
                 </div>
 
                 {/* Date Range */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Start Date <span className="text-red-500">*</span>
@@ -322,7 +322,7 @@ export default function EditContractPage() {
                 </div>
 
                 {/* Financial Details */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Monthly Rent (₱) <span className="text-red-500">*</span>
@@ -358,7 +358,7 @@ export default function EditContractPage() {
                 </div>
 
                 {/* Terms and Conditions */}
-                <div>
+                <div className="form-section">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Terms and Conditions
                   </label>
@@ -373,7 +373,7 @@ export default function EditContractPage() {
                 </div>
 
           {/* Actions */}
-          <div className="flex gap-2 justify-end pt-4 border-t">
+          <div className="form-actions flex gap-2 justify-end">
             <button
               type="button"
               onClick={() => router.push(`/dashboard/contracts/${contractId}`)}
@@ -384,7 +384,7 @@ export default function EditContractPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+              className="px-5 py-2.5 bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
             >
               {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>

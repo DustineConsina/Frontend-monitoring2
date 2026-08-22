@@ -193,10 +193,10 @@ export default function NotificationsPage() {
 
       {/* Modal */}
       {selectedNotif && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/40 p-4 backdrop-blur-sm">
+          <div className="modal-shell max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
-            <div className="sticky top-0 bg-gray-50 border-b px-6 py-4 flex items-center justify-between">
+            <div className="modal-header sticky top-0 flex items-center justify-between">
               <h3 className="text-xl font-bold text-gray-900">{selectedNotif.title}</h3>
               <button
                 onClick={() => setSelectedNotif(null)}
@@ -207,7 +207,7 @@ export default function NotificationsPage() {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6">
+            <div className="modal-body space-y-6">
               {/* Type Badge */}
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium text-gray-600">Type:</span>

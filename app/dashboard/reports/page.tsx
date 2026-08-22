@@ -4,6 +4,28 @@ import { useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 
+function reportDate(value: unknown): string {
+  if (!value) return 'Date unavailable'
+  const date = new Date(String(value))
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString()
+}
+
+function reportDateTime(value: unknown): string {
+  if (!value) return 'Date unavailable'
+  const date = new Date(String(value))
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString()
+}
+
+function reportValue(value: unknown, fallback = 'Not provided'): string {
+  if (value === null || value === undefined || value === '') return fallback
+  return String(value)
+}
+
+function reportAmount(value: unknown): string {
+  const amount = Number.parseFloat(String(value ?? '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(amount) ? `₱${amount.toLocaleString()}` : 'Amount unavailable'
+}
+
 export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<string>('')
   const [reportData, setReportData] = useState<any>(null)
@@ -170,7 +192,7 @@ export default function ReportsPage() {
               return (
                 <div key={key} className={`bg-gradient-to-br ${colors[idx % colors.length]} rounded-lg p-4 text-white shadow-lg`}>
                   <p className="text-xs opacity-90 uppercase tracking-wide">{key.replace(/_/g, ' ')}</p>
-                  <p className="text-2xl font-bold mt-2">{String(value)}</p>
+                    <p className="text-2xl font-bold mt-2">{key.includes('total') || key.includes('balance') || key.includes('amount') ? reportAmount(value) : reportValue(value)}</p>
                 </div>
               )
             })}
@@ -194,12 +216,12 @@ export default function ReportsPage() {
             <tbody className="divide-y">
               {contracts.map((contract: any, idx: number) => (
                 <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{contract.contract_number}</td>
-                  <td className="px-4 py-3">{contract.tenant?.contact_person || contract.tenant?.name || 'N/A'}</td>
-                  <td className="px-4 py-3">{contract.rental_space?.name || 'N/A'} ({contract.rental_space?.space_type?.replace(/_/g, ' ') || 'N/A'})</td>
-                  <td className="px-4 py-3">₱{parseFloat(contract.monthly_rental || 0).toLocaleString()}</td>
-                  <td className="px-4 py-3">{new Date(contract.start_date).toLocaleDateString()}</td>
-                  <td className="px-4 py-3">{new Date(contract.end_date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 font-medium">{reportValue(contract.contractNumber || contract.contract_number)}</td>
+                  <td className="px-4 py-3">{reportValue(contract.tenant?.contactPerson || contract.tenant?.contact_person || contract.tenant?.name)}</td>
+                  <td className="px-4 py-3">{reportValue(contract.rentalSpace?.name || contract.rental_space?.name)} ({reportValue(contract.rentalSpace?.spaceType || contract.rental_space?.space_type)})</td>
+                  <td className="px-4 py-3">{reportAmount(contract.monthlyRent || contract.monthlyRental || contract.monthly_rental)}</td>
+                  <td className="px-4 py-3">{reportDate(contract.startDate || contract.start_date)}</td>
+                  <td className="px-4 py-3">{reportDate(contract.endDate || contract.end_date)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       contract.status === 'active' ? 'bg-gray-100 text-gray-800' :
@@ -251,7 +273,7 @@ export default function ReportsPage() {
                 <div key={key} className={`bg-gradient-to-br ${colors[idx % colors.length]} rounded-lg p-4 text-white shadow-lg`}>
                   <p className="text-xs opacity-90 uppercase tracking-wide">{key.replace(/_/g, ' ')}</p>
                   <p className="text-xl font-bold mt-2">
-                    {typeof value === 'number' && key.includes('total') ? `₱${parseFloat(String(value)).toLocaleString()}` : String(value)}
+                    {key.includes('total') || key.includes('balance') || key.includes('amount') ? reportAmount(value) : reportValue(value)}
                   </p>
                 </div>
               )
@@ -276,12 +298,12 @@ export default function ReportsPage() {
             <tbody className="divide-y">
               {payments.map((payment: any, idx: number) => (
                 <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{payment.payment_number}</td>
-                  <td className="px-4 py-3">{payment.contract?.contract_number || 'N/A'}</td>
-                  <td className="px-4 py-3">{payment.tenant?.contact_person || 'N/A'}</td>
-                  <td className="px-4 py-3">₱{parseFloat(payment.amount_due || 0).toLocaleString()}</td>
-                  <td className="px-4 py-3">₱{parseFloat(payment.amount_paid || 0).toLocaleString()}</td>
-                  <td className="px-4 py-3">{new Date(payment.due_date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 font-medium">{reportValue(payment.paymentNumber || payment.payment_number)}</td>
+                  <td className="px-4 py-3">{reportValue(payment.contract?.contractNumber || payment.contract?.contract_number)}</td>
+                  <td className="px-4 py-3">{reportValue(payment.tenant?.contactPerson || payment.tenant?.contact_person)}</td>
+                  <td className="px-4 py-3">{reportAmount(payment.amountDue || payment.amount_due)}</td>
+                  <td className="px-4 py-3">{reportAmount(payment.amountPaid || payment.amount_paid)}</td>
+                  <td className="px-4 py-3">{reportDate(payment.dueDate || payment.due_date)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       payment.status === 'paid' ? 'bg-gray-100 text-gray-800' :
@@ -353,25 +375,25 @@ export default function ReportsPage() {
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <h4 className="font-semibold text-gray-900">{item.tenant?.contact_person || item.tenant?.name}</h4>
-                  <p className="text-sm text-gray-600">{item.tenant?.user?.email || 'N/A'}</p>
+                  <p className="text-sm text-gray-600">{reportValue(item.tenant?.user?.email || item.tenant?.email)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-gray-900">₱{parseFloat(item.total_balance || 0).toLocaleString()}</p>
-                  <p className="text-xs text-gray-600">{item.overdue_count} payment(s) overdue</p>
+                  <p className="text-lg font-bold text-gray-900">{reportAmount(item.totalBalance || item.total_balance)}</p>
+                  <p className="text-xs text-gray-600">{reportValue(item.overdueCount || item.overdue_count, '0')} payment(s) overdue</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
                   <span className="text-gray-600">Outstanding:</span>
-                  <p className="font-semibold">₱{parseFloat(item.total_balance || 0).toLocaleString()}</p>
+                  <p className="font-semibold">{reportAmount(item.totalBalance || item.total_balance)}</p>
                 </div>
                 <div>
                   <span className="text-gray-600">Interest Charged:</span>
-                  <p className="font-semibold">₱{parseFloat(item.total_interest || 0).toLocaleString()}</p>
+                  <p className="font-semibold">{reportAmount(item.totalInterest || item.total_interest)}</p>
                 </div>
                 <div>
                   <span className="text-gray-600">Oldest Due:</span>
-                  <p className="font-semibold">{new Date(item.oldest_due_date).toLocaleDateString()}</p>
+                  <p className="font-semibold">{reportDate(item.oldestDueDate || item.oldest_due_date)}</p>
                 </div>
               </div>
             </div>
@@ -410,7 +432,7 @@ export default function ReportsPage() {
                 <div key={key} className={`bg-gradient-to-br ${colors[idx % colors.length]} rounded-lg p-4 text-white shadow-lg`}>
                   <p className="text-xs opacity-90 uppercase tracking-wide">{key.replace(/_/g, ' ')}</p>
                   <p className="text-xl font-bold mt-2">
-                    {typeof value === 'number' ? `₱${parseFloat(String(value)).toLocaleString()}` : String(value)}
+                    {reportAmount(value)}
                   </p>
                 </div>
               )
@@ -429,9 +451,9 @@ export default function ReportsPage() {
                   <div className="flex-1 h-8 bg-gray-100 rounded-lg overflow-hidden">
                     <div 
                       className="h-full bg-gray-700 rounded-lg flex items-center justify-end pr-3"
-                      style={{ width: `${Math.min((parseFloat(amount as any) / 100000) * 100, 100)}%` }}
+                      style={{ width: `${Math.min((Number.parseFloat(String(amount).replace(/[^0-9.-]/g, '')) / 100000) * 100, 100)}%` }}
                     >
-                      <span className="text-white text-xs font-semibold">₱{parseFloat(amount as any).toLocaleString()}</span>
+                      <span className="text-white text-xs font-semibold">{reportAmount(amount)}</span>
                     </div>
                   </div>
                 </div>
@@ -467,19 +489,21 @@ export default function ReportsPage() {
     return (
       <div className="space-y-4">
         {contracts.map((contract: any, idx: number) => {
-          const daysUntilExpiry = Math.ceil((new Date(contract.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+          const endDateValue = contract.endDate || contract.end_date
+          const endDate = new Date(endDateValue)
+          const daysUntilExpiry = Number.isNaN(endDate.getTime()) ? 0 : Math.ceil((endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
           return (
             <div key={idx} className="border border-gray-200 rounded-lg p-4 bg-white">
               <div className="flex justify-between items-start">
                 <div>
-                  <h4 className="font-semibold text-gray-900">{contract.contract_number}</h4>
-                  <p className="text-sm text-gray-600">{contract.tenant?.contact_person || 'N/A'} • {contract.rental_space?.name || 'N/A'} ({contract.rental_space?.space_type?.replace(/_/g, ' ') || 'N/A'})</p>
+                  <h4 className="font-semibold text-gray-900">{reportValue(contract.contractNumber || contract.contract_number)}</h4>
+                  <p className="text-sm text-gray-600">{reportValue(contract.tenant?.contactPerson || contract.tenant?.contact_person)} • {reportValue(contract.rentalSpace?.name || contract.rental_space?.name)} ({reportValue(contract.rentalSpace?.spaceType || contract.rental_space?.space_type)})</p>
                 </div>
                 <div className="text-right">
                   <p className={`text-lg font-bold ${daysUntilExpiry <= 7 ? 'text-gray-900' : daysUntilExpiry <= 14 ? 'text-gray-800' : 'text-gray-700'}`}>
                     {daysUntilExpiry} days
                   </p>
-                  <p className="text-sm text-gray-600">Expires {new Date(contract.end_date).toLocaleDateString()}</p>
+                  <p className="text-sm text-gray-600">Expires {reportDate(endDateValue)}</p>
                 </div>
               </div>
             </div>
@@ -525,12 +549,12 @@ export default function ReportsPage() {
               
               return (
                 <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{tenant.contact_person || tenant.name || 'N/A'}</td>
-                  <td className="px-4 py-3">{tenant.user?.email || 'N/A'}</td>
-                  <td className="px-4 py-3">{tenant.contact_number || 'N/A'}</td>
-                  <td className="px-4 py-3">{tenant.business_name || 'N/A'}</td>
-                  <td className="px-4 py-3">{tenant.tin || 'N/A'}</td>
-                  <td className="px-4 py-3 font-semibold text-gray-900">{activeContractsCount}</td>
+                  <td className="px-4 py-3 font-medium">{reportValue(tenant.contactPerson || tenant.contact_person || tenant.name)}</td>
+                  <td className="px-4 py-3">{reportValue(tenant.user?.email || tenant.email)}</td>
+                  <td className="px-4 py-3">{reportValue(tenant.contactNumber || tenant.contact_number)}</td>
+                  <td className="px-4 py-3">{reportValue(tenant.businessName || tenant.business_name)}</td>
+                  <td className="px-4 py-3">{reportValue(tenant.tin)}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-900">{reportValue(item.activeContractsCount || item.active_contracts_count, '0')}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       tenant.status === 'active' ? 'bg-gray-100 text-gray-800' : 'bg-gray-200 text-gray-800'
@@ -578,11 +602,11 @@ export default function ReportsPage() {
           <tbody className="divide-y">
             {logs.map((log: any, idx: number) => (
               <tr key={idx} className="hover:bg-gray-50">
-                <td className="px-4 py-3 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                <td className="px-4 py-3">{log.user_id || 'System'}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{reportDateTime(log.createdAt || log.created_at)}</td>
+                <td className="px-4 py-3">{reportValue(log.userId || log.user_id, 'System')}</td>
                 <td className="px-4 py-3 uppercase text-xs font-medium">{log.action}</td>
-                <td className="px-4 py-3">{log.model_type || 'N/A'}</td>
-                <td className="px-4 py-3">{log.description || 'N/A'}</td>
+                <td className="px-4 py-3">{reportValue(log.modelType || log.model_type)}</td>
+                <td className="px-4 py-3">{reportValue(log.description)}</td>
               </tr>
             ))}
           </tbody>
