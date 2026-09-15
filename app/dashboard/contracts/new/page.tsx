@@ -56,7 +56,13 @@ export default function NewContractPage() {
       const availableSpaces = (spacesData.data?.data || spacesData.data || []).filter((space: any) => {
         const status = String(space.status || '').toLowerCase()
         const occupancyStatus = String(space.occupancyStatus || space.occupancy_status || '').toLowerCase()
-        return status === 'available' && occupancyStatus !== 'occupied'
+        const activeContractCount = Number(space.active_contracts_count ?? space.activeContractsCount ?? 0)
+        const blockedStates = new Set(['occupied', 'maintenance', 'reserved', 'rented', 'terminated', 'unavailable'])
+
+        const isAvailableStatus = status === 'available' || status === '' || status === 'null' || status === 'undefined'
+        const isNotBlocked = !blockedStates.has(status) && !blockedStates.has(occupancyStatus)
+
+        return isAvailableStatus && isNotBlocked && activeContractCount === 0
       })
       
       console.log('[EXTRACTED] availableSpaces has', availableSpaces.length, 'spaces')
@@ -80,6 +86,18 @@ export default function NewContractPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const todayStr = new Date().toISOString().split('T')[0]
+    if (formData.startDate < todayStr) {
+      alert('Validation Error:\nStart date cannot be in the past.')
+      return
+    }
+
+    if (formData.endDate && formData.endDate <= formData.startDate) {
+      alert('Validation Error:\nEnd date must be after the start date.')
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -89,6 +107,7 @@ export default function NewContractPage() {
         securityDeposit: parseFloat(formData.securityDeposit),
       })
       setSuccessMessage('✅ Contract created successfully!')
+      setTimeout(() => setSuccessMessage(null), 3000)
       setTimeout(() => {
         router.push('/dashboard/contracts')
       }, 2000)
@@ -148,9 +167,9 @@ export default function NewContractPage() {
           </div>
           <Link
             href="/dashboard/contracts"
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="back-action"
           >
-            ← Back
+            Back
           </Link>
         </div>
 
@@ -158,7 +177,7 @@ export default function NewContractPage() {
         <div className="form-shell p-6 lg:p-8">
           {loadingData ? (
             <div className="text-center py-12">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+              <div className="loading-spinner" aria-hidden="true" />
               <p className="mt-4 text-gray-600">Loading form data...</p>
             </div>
           ) : (
@@ -265,7 +284,7 @@ export default function NewContractPage() {
 
               {/* Date Range - moved down to give space for dropdowns above */}
               <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
+                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Start Date <span className="text-red-500">*</span>
                   </label>
@@ -273,6 +292,7 @@ export default function NewContractPage() {
                     type="date"
                     name="startDate"
                     value={formData.startDate}
+                    min={new Date().toISOString().split('T')[0]}
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -287,6 +307,7 @@ export default function NewContractPage() {
                     type="date"
                     name="endDate"
                     value={formData.endDate}
+                    min={formData.startDate || new Date().toISOString().split('T')[0]}
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -361,7 +382,7 @@ export default function NewContractPage() {
                   title="Create Contract"
                   className="px-5 py-2.5 flex items-center justify-center bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? '⏳ Creating...' : 'Create'}
+                  {isLoading ? 'Creating...' : 'Create'}
                 </button>
               </div>
             </form>

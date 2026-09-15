@@ -42,7 +42,7 @@ export default function PublicContractPage() {
 
   const fetchContract = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.4:8000/api'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || `${window.location.protocol}//${window.location.hostname}:8000/api`
       const response = await fetch(`${apiUrl}/contracts/${contractId}/view`)
       
       if (!response.ok) {
@@ -63,8 +63,7 @@ export default function PublicContractPage() {
     
     setIsDownloading(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.4:8000/api'
-      const response = await fetch(`${apiUrl}/contracts/${contract.id}/lease`, {
+      const response = await fetch(`/api/contracts/${encodeURIComponent(String(contract.id))}/lease`, {
         method: 'GET',
         headers: {
           'Accept': 'application/pdf'
@@ -114,12 +113,14 @@ export default function PublicContractPage() {
     )
   }
 
-  const isActive = contract.status?.toLowerCase() === 'active'
-  const statusBadgeColor = isActive
-    ? 'bg-green-100 text-green-800'
-    : contract.status?.toLowerCase() === 'terminated'
-    ? 'bg-red-100 text-red-800'
-    : 'bg-yellow-100 text-yellow-800'
+  const getStatusBadge = (status: string) => {
+    const s = (status || '').toLowerCase()
+    if (s === 'active') return 'bg-green-100 text-green-800'
+    if (s === 'for_renewal') return 'bg-indigo-100 text-indigo-800 font-bold'
+    if (s === 'terminated') return 'bg-red-100 text-red-800'
+    if (s === 'expired') return 'bg-orange-100 text-orange-800'
+    return 'bg-yellow-100 text-yellow-800'
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_8%_0%,rgba(81,72,229,0.08),transparent_24%),linear-gradient(135deg,#f5f6fb_0%,#eef0f7_58%,#e9ecf4_100%)] py-8 px-4 sm:px-6 lg:px-8">
@@ -133,8 +134,8 @@ export default function PublicContractPage() {
               </h1>
               <p className="text-gray-600 mt-1">View contract details</p>
             </div>
-            <span className={`px-4 py-2 rounded-full font-semibold text-sm ${statusBadgeColor}`}>
-              {contract.status}
+            <span className={`px-4 py-2 rounded-full font-semibold text-sm ${getStatusBadge(contract.status)}`}>
+              {(contract.status || 'PENDING').toUpperCase().replace('_', ' ')}
             </span>
           </div>
 
@@ -229,7 +230,7 @@ export default function PublicContractPage() {
             >
               {isDownloading ? (
                 <>
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-r-transparent mr-2" />
+                  <span className="loading-spinner mr-2" aria-hidden="true" />
                   Generating PDF...
                 </>
               ) : (

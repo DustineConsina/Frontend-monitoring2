@@ -23,6 +23,7 @@ export default function EditContractPage() {
 
   const [tenants, setTenants] = useState<User[]>([])
   const [spaces, setSpaces] = useState<RentalSpace[]>([])
+  const [originalStartDate, setOriginalStartDate] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,13 +38,15 @@ export default function EditContractPage() {
       // Fetch contract data
       const contractResponse = await apiClient.getContract(contractId.toString())
       const contract = contractResponse.data || contractResponse
+      const startDate = contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : ''
+      setOriginalStartDate(startDate)
       
       // NOTE: apiClient converts ALL response keys from snake_case to camelCase
       // So contract.tenant_id becomes contract.tenantId, etc.
       setFormData({
         tenantId: contract.tenantId?.toString() || contract.tenant?.id?.toString() || '',
         rentalSpaceId: contract.rentalSpaceId?.toString() || contract.rentalSpace?.id?.toString() || '',
-        startDate: contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : '',
+        startDate,
         endDate: contract.endDate ? new Date(contract.endDate).toISOString().split('T')[0] : '',
         monthlyRent: contract.monthlyRental?.toString() || contract.monthlyRent?.toString() || '',
         securityDeposit: contract.depositAmount?.toString() || contract.securityDeposit?.toString() || '',
@@ -138,9 +141,22 @@ export default function EditContractPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSubmitting(true)
     setError(null)
     setSuccessMessage(null)
+
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    if (formData.startDate < todayStr && formData.startDate !== originalStartDate) {
+      setError('Start date cannot be set to a past date.')
+      return
+    }
+
+    if (formData.endDate && formData.endDate <= formData.startDate) {
+      setError('End date must be after the start date.')
+      return
+    }
+
+    setIsSubmitting(true)
 
     try {
       const monthlyRentValue = parseFloat(formData.monthlyRent)
@@ -159,6 +175,7 @@ export default function EditContractPage() {
       await apiClient.updateContract(contractId.toString(), updatePayload)
       
       setSuccessMessage('✅ Contract updated successfully')
+      setTimeout(() => setSuccessMessage(null), 3000)
       
       // Redirect after showing success for 2 seconds
       setTimeout(() => {
@@ -177,7 +194,7 @@ export default function EditContractPage() {
       <ProtectedRoute>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+            <div className="loading-spinner" aria-hidden="true" />
             <p className="mt-4 text-gray-600">Loading contract...</p>
           </div>
         </div>
@@ -209,12 +226,6 @@ export default function EditContractPage() {
                 <h2 className="text-2xl font-bold text-gray-900">Edit Contract</h2>
                 <p className="text-gray-600 text-sm mt-1">Update contract details</p>
               </div>
-              <button
-                onClick={() => router.push(`/dashboard/contracts/${contractId}`)}
-                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-              >
-                ✕
-              </button>
             </div>
           </div>
 
@@ -230,7 +241,7 @@ export default function EditContractPage() {
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-center">
-                  <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+                  <div className="loading-spinner" aria-hidden="true" />
                   <p className="mt-4 text-gray-600">Loading contract...</p>
                 </div>
               </div>
@@ -300,6 +311,7 @@ export default function EditContractPage() {
                       type="date"
                       name="startDate"
                       required
+                      min={originalStartDate && originalStartDate < new Date().toISOString().split('T')[0] ? originalStartDate : new Date().toISOString().split('T')[0]}
                       value={formData.startDate}
                       onChange={handleChange}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -314,6 +326,7 @@ export default function EditContractPage() {
                       type="date"
                       name="endDate"
                       required
+                      min={formData.startDate || new Date().toISOString().split('T')[0]}
                       value={formData.endDate}
                       onChange={handleChange}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -377,14 +390,14 @@ export default function EditContractPage() {
             <button
               type="button"
               onClick={() => router.push(`/dashboard/contracts/${contractId}`)}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
+              className="action-secondary rounded-lg border px-4 py-2 font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+              className="action-primary rounded-lg border px-5 py-2.5 font-medium disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>

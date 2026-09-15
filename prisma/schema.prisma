@@ -19,6 +19,7 @@ model User {
   role          UserRole  @default(TENANT)
   contactNumber String?
   address       String?   @db.Text
+  businessPermitNumber String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   
@@ -117,7 +118,7 @@ enum ContractStatus {
 model Payment {
   id                String         @id @default(cuid())
   contractId        String
-  contract          Contract       @relation(fields: [contractId], references: [id])
+  contract          Contract       @relation(fields: [contractId], references: [id], onDelete: Cascade)
   
   amount            Decimal        @db.Decimal(10, 2)
   paymentDate       DateTime       @default(now())
@@ -152,7 +153,7 @@ enum PaymentStatus {
 model Notification {
   id            String           @id @default(cuid())
   contractId    String
-  contract      Contract         @relation(fields: [contractId], references: [id])
+  contract      Contract         @relation(fields: [contractId], references: [id], onDelete: Cascade)
   
   type          NotificationType
   subject       String

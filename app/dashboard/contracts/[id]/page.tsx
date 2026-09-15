@@ -22,7 +22,8 @@ export default function ContractDetailsPage() {
   const [renewalDuration, setRenewalDuration] = useState('12')
   const [renewalRent, setRenewalRent] = useState('')
   const [isDownloading, setIsDownloading] = useState(false)
-  const [isActivating, setIsActivating] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   // Safe date formatter
   const formatDate = (dateInput: any): string => {
@@ -143,17 +144,26 @@ export default function ContractDetailsPage() {
     }
     setIsRenewing(true)
     try {
-      const renewalData: any = {
+      const renewalData: { duration_months: number; monthly_rental?: number } = {
         duration_months: parseInt(renewalDuration),
       }
-      if (renewalRent && parseFloat(renewalRent) > 0) {
-        renewalData.monthlyRent = parseFloat(renewalRent)
+
+      if (renewalRent.trim()) {
+        const monthlyRental = Number(renewalRent)
+        if (!Number.isFinite(monthlyRental) || monthlyRental <= 0) {
+          throw new Error('Monthly rent must be greater than zero')
+        }
+        renewalData.monthly_rental = monthlyRental
       }
-      await apiClient.renewContract(contractId, renewalData)
+
+      const renewalResult = await apiClient.renewContract(contractId, renewalData)
+      setIsRenewing(false)
       setShowRenewModal(false)
       setRenewalDuration('12')
       setRenewalRent('')
-      router.push('/dashboard/contracts')
+
+      const newContractId = renewalResult?.data?.id || renewalResult?.data?.contract?.id
+      router.push(newContractId ? `/dashboard/contracts/${newContractId}` : '/dashboard/contracts')
     } catch (err: any) {
       alert(err.message || 'Failed to renew contract')
       setIsRenewing(false)
@@ -165,9 +175,8 @@ export default function ContractDetailsPage() {
     
     setIsDownloading(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
       const token = localStorage.getItem('auth_token')
-      const response = await fetch(`${apiUrl}/contracts/${contract.id}/lease`, {
+      const response = await fetch(`/api/contracts/${encodeURIComponent(String(contract.id))}/lease`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -199,18 +208,46 @@ export default function ContractDetailsPage() {
     }
   }
 
-  const handleActivate = async () => {
-    setIsActivating(true)
-    try {
-      await apiClient.activateContract(contractId)
-      alert('Contract activated successfully!')
-      fetchContract() // Refresh the contract data
-    } catch (err: any) {
-      console.error('Activation error:', err)
-      alert(err.message || 'Failed to activate contract')
-    } finally {
-      setIsActivating(false)
+  const handleDelete = async () => {
+    const status = String(contract?.status || '').toLowerCase()
+    if (!contract || !['terminated', 'expired'].includes(status)) {
+      alert('Only terminated or expired contracts can be deleted.')
+      return
     }
+    setShowDeleteModal(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!contract) return
+
+    setIsDeleting(true)
+    try {
+      await apiClient.deleteContract(contractId)
+      setShowDeleteModal(false)
+      router.push('/dashboard/contracts')
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete contract')
+      setIsDeleting(false)
+    }
+
+      {showDeleteModal && contract && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-gray-900">Delete Contract?</h3>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Delete <span className="font-semibold text-gray-900">{contract.contractNumber}</span>? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
+              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={isDeleting} className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmDelete} disabled={isDeleting} className="action-danger rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
+                {isDeleting ? 'Deleting...' : 'Delete Contract'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
   }
 
   if (isLoading) {
@@ -218,7 +255,7 @@ export default function ContractDetailsPage() {
       <ProtectedRoute>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+            <div className="loading-spinner" aria-hidden="true" />
             <p className="mt-4 text-gray-600">Loading contract...</p>
           </div>
         </div>
@@ -235,9 +272,9 @@ export default function ContractDetailsPage() {
           </div>
           <Link
             href="/dashboard/contracts"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="back-action"
           >
-            ← Back to Contracts
+            Back to Contracts
           </Link>
         </div>
       </ProtectedRoute>
@@ -248,9 +285,11 @@ export default function ContractDetailsPage() {
     const upperStatus = status?.toUpperCase() || 'PENDING'
     const colors = {
       ACTIVE: 'bg-green-100 text-green-800',
+      FOR_RENEWAL: 'bg-indigo-100 text-indigo-800 font-bold',
       EXPIRED: 'bg-orange-100 text-orange-800',
       TERMINATED: 'bg-red-100 text-red-800',
       PENDING: 'bg-blue-100 text-blue-800',
+      RENEWED: 'bg-indigo-100 text-indigo-800',
     }
     return colors[upperStatus as keyof typeof colors] || 'bg-gray-100 text-gray-800'
   }
@@ -267,33 +306,24 @@ export default function ContractDetailsPage() {
           <div className="flex gap-2 flex-wrap">
             <Link
               href="/dashboard/contracts"
-              className="px-4 py-2 inline-flex items-center justify-center gap-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
+              className="back-action"
             >
-              ← Back
+              Back
             </Link>
             <Link
               href={`/dashboard/contracts/${contractId}/edit`}
-              className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+              className="action-edit inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
             >
               Edit
-            </Link>
-            <Link
-              href={`/dashboard/contracts/${contractId}/qr`}
-              className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
-            >
-              View QR
             </Link>
             <button
               onClick={handleDownloadLease}
               disabled={isDownloading}
-              className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium"
+              className="action-download inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
             >
               {isDownloading ? (
                 <>
-                  <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" opacity="0.25" />
-                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
+                  <span className="loading-spinner" aria-hidden="true" />
                   Downloading...
                 </>
               ) : (
@@ -305,26 +335,26 @@ export default function ContractDetailsPage() {
                 </>
               )}
             </button>
-            {contract.status?.toLowerCase() === 'active' && (
+            {contract.status?.toLowerCase() === 'for_renewal' && (
               <button
                 onClick={() => setShowRenewModal(true)}
-                className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
+                className="action-success inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
               >
                 Renew
               </button>
             )}
-            {contract.status?.toLowerCase() === 'pending' && (
+            {['terminated', 'expired'].includes(String(contract.status || '').toLowerCase()) && (
               <button
-                onClick={handleActivate}
-                disabled={isActivating}
-                className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="action-danger inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
               >
-                {isActivating ? '⏳ Activating...' : 'Activate'}
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
             )}
             <button
               onClick={() => setShowTerminateModal(true)}
-              className="px-4 py-2 inline-flex items-center justify-center gap-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+              className="action-danger inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
             >
               Terminate
             </button>
@@ -340,7 +370,7 @@ export default function ContractDetailsPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Contract Status</h3>
               <div className="flex items-center gap-4">
                 <span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusBadge(contract.status?.toUpperCase() || 'PENDING')}`}>
-                  {contract.status?.toUpperCase() || 'PENDING'}
+                  {(contract.status?.toUpperCase() || 'PENDING').replace('_', ' ')}
                 </span>
                 <div className="text-sm text-gray-600">
                   Created on {formatDate(contract.createdAt)}
@@ -422,10 +452,10 @@ export default function ContractDetailsPage() {
                       <span className="font-medium">{contract.tenant.businessType || contract.tenant.business_type}</span>
                     </div>
                   )}
-                  {(contract.tenant.tin) && (
+                  {(contract.tenant.businessPermitNumber || contract.tenant.business_permit_number || contract.tenant.tin) && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">TIN:</span>
-                      <span className="font-medium">{contract.tenant.tin}</span>
+                      <span className="text-gray-600">Business Permit Number:</span>
+                      <span className="font-medium">{contract.tenant.businessPermitNumber || contract.tenant.business_permit_number || contract.tenant.tin}</span>
                     </div>
                   )}
                   {(contract.tenant.businessAddress || contract.tenant.business_address) && (
@@ -440,7 +470,7 @@ export default function ContractDetailsPage() {
                       <span className="font-medium">{contract.tenant.contactNumber || contract.tenant.contact_number}</span>
                     </div>
                   )}
-                  {!(contract.tenant.businessName || contract.tenant.business_name) && !(contract.tenant.businessType || contract.tenant.business_type) && !contract.tenant.tin && !(contract.tenant.businessAddress || contract.tenant.business_address) && (
+                  {!(contract.tenant.businessName || contract.tenant.business_name) && !(contract.tenant.businessType || contract.tenant.business_type) && !(contract.tenant.businessPermitNumber || contract.tenant.business_permit_number || contract.tenant.tin) && !(contract.tenant.businessAddress || contract.tenant.business_address) && (
                     <p className="text-gray-500 text-sm italic">No additional business details available</p>
                   )}
                 </div>
@@ -727,14 +757,14 @@ export default function ContractDetailsPage() {
                   setRenewalRent('')
                 }}
                 disabled={isRenewing}
-                className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="action-secondary flex-1 rounded-lg border px-4 py-2 font-medium disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRenew}
                 disabled={isRenewing}
-                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="action-success flex-1 rounded-lg border px-4 py-2 font-medium disabled:cursor-not-allowed"
               >
                 {isRenewing ? 'Renewing...' : 'Renew'}
               </button>

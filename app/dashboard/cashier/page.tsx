@@ -42,6 +42,8 @@ function CashierLegend({ items }: { items: string[][] }) {
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { showGlobalNotice } from '@/lib/global-notice'
+import { getPaymentProviders, getProviderValue, PAYMENT_METHODS, requiresPaymentDetails } from '@/lib/payment-methods'
+import Pagination from '@/components/Pagination'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 interface CollectiblePayment {
@@ -105,12 +107,23 @@ export default function CashierDashboard() {
   const [recordData, setRecordData] = useState({
     amount: '',
     method: 'cash',
+    provider: '',
+    providerOther: '',
+    referenceNumber: '',
+    paidDate: '',
     remarks: '',
   })
   const [recordingMessage, setRecordingMessage] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [paymentTrends, setPaymentTrends] = useState<PaymentTrend[]>([])
   const [trendMonth, setTrendMonth] = useState('')
+  const [trendYear, setTrendYear] = useState(String(new Date().getFullYear()))
+  const [collectionPeriod, setCollectionPeriod] = useState<'6-months' | 'year'>('6-months')
   const [loading, setLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const resetRecordData = () => {
+    setRecordData({ amount: '', method: 'cash', provider: '', providerOther: '', referenceNumber: '', paidDate: '', remarks: '' })
+  }
 
   // Helper to safely parse and format dates
   const formatDate = (dateInput: any): string => {
@@ -169,7 +182,7 @@ export default function CashierDashboard() {
   useEffect(() => {
     loadCashierData()
     loadPaymentTrends()
-  }, [filterStatus])
+  }, [filterStatus, trendYear, collectionPeriod])
 
   const loadPaymentTrends = async () => {
     try {
@@ -190,8 +203,7 @@ export default function CashierDashboard() {
       
       if (!Array.isArray(payments) || payments.length === 0) {
         console.warn('No payment data available:', { response, payments })
-        setPaymentTrends([])
-        return
+        payments = []
       }
       
       // Group payments by month
@@ -223,19 +235,21 @@ export default function CashierDashboard() {
         }
       })
       
-      // Sort by month and convert to array
-      const trends = Object.entries(monthlyData)
-        .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-        .slice(-6)
-        .map(([month, data]) => ({
-          month,
-          ...data
-        }))
+      // Keep zero-value months so the year and month filters remain usable without records.
+      const yearMonths = Array.from({ length: 12 }, (_, monthIndex) => {
+        const date = new Date(Number(trendYear), monthIndex, 1)
+        return date.toLocaleString('en-US', { year: 'numeric', month: 'short' })
+      })
+      const visibleMonths = collectionPeriod === '6-months' ? yearMonths.slice(-6) : yearMonths
+      const trends = visibleMonths.map((month) => ({
+        month,
+        ...(monthlyData[month] || { paid: 0, pending: 0, overdue: 0, total: 0 }),
+      }))
       
       console.log('Payment trends loaded:', trends)
       setPaymentTrends(trends)
-      if (trends.length > 0 && !trendMonth) {
-        setTrendMonth(trends[trends.length - 1].month)
+      if (!trends.some((trend) => trend.month === trendMonth)) {
+        setTrendMonth(trends[trends.length - 1]?.month || '')
       }
     } catch (error) {
       console.error('Error loading payment trends:', error)
@@ -267,12 +281,13 @@ export default function CashierDashboard() {
         amountDue: parseFloat(String(p.amountDue || p.amount_due || 0)),
         interest: parseFloat(String(p.interest || 0)),
         total: parseFloat(String(p.total || 0)),
-        balance: parseFloat(String(p.balance || 0)),
+        balance: Math.max(0, parseFloat(String(p.balance || 0))),
         dueDate: p.dueDate || p.due_date,
         status: String(p.status || p.paymentStatus || p.payment_status || '').toLowerCase(),
         daysOverdue: p.daysOverdue || p.days_overdue || 0,
       }))
       setCollectibles(mappedPayments)
+      setCurrentPage(1)
     } catch (error) {
       console.error('Error loading cashier data:', error)
       setCollectibles([])
@@ -281,14 +296,53 @@ export default function CashierDashboard() {
     }
   }
 
+  const clampPaymentAmount = (rawValue: string, maxAllowed: number) => {
+    const parsedValue = Number.parseFloat(rawValue)
+    if (!Number.isFinite(parsedValue)) return ''
+
+    const safeMax = Math.max(0, maxAllowed)
+    const clampedValue = Math.min(Math.max(parsedValue, 0), safeMax)
+    return String(clampedValue)
+  }
+
   const handleRecordPayment = async () => {
     if (String(selectedPayment?.status).toLowerCase() === 'paid') {
       showGlobalNotice('Payment already recorded', 'This billing period is already paid and cannot be recorded again.')
       return
     }
 
-    if (!selectedPayment || !recordData.amount) {
+    if (!selectedPayment) {
+      showGlobalNotice('Payment details required', 'Please select a payment before recording.')
+      return
+    }
+
+    const maxAllowed = Math.max(0, Number(selectedPayment.balance) || 0)
+    const enteredAmount = Number.parseFloat(recordData.amount)
+
+    if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) {
       showGlobalNotice('Payment details required', 'Please enter an amount before recording the payment.')
+      return
+    }
+
+    if (enteredAmount > maxAllowed) {
+      setRecordData((current) => ({ ...current, amount: String(maxAllowed) }))
+      showGlobalNotice('Amount adjusted', 'The payment amount was capped to the remaining balance.')
+      return
+    }
+
+    if (!recordData.paidDate) {
+      showGlobalNotice('Paid date required', 'Enter the paid date before selecting or recording a payment method.')
+      return
+    }
+
+    const paymentProvider = getProviderValue(recordData.provider, recordData.providerOther)
+    if (requiresPaymentDetails(recordData.method) && !paymentProvider) {
+      showGlobalNotice('Payment provider required', 'Select a payment provider before recording this payment.')
+      return
+    }
+
+    if (requiresPaymentDetails(recordData.method) && !recordData.referenceNumber.trim()) {
+      showGlobalNotice('Reference number required', `Reference number is required for ${recordData.method === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer'} payments.`)
       return
     }
 
@@ -296,8 +350,11 @@ export default function CashierDashboard() {
       setIsRecording(true)
       const billingPeriod = getBillingPeriod(selectedPayment.dueDate)
       await apiClient.post(`/cashier/payments/${selectedPayment.id}/record`, {
-        amount: parseFloat(recordData.amount),
+        amount: Number(enteredAmount.toFixed(2)),
         payment_method: recordData.method,
+        payment_provider: paymentProvider || null,
+        reference_number: recordData.referenceNumber.trim() || null,
+        paid_date: recordData.paidDate,
         remarks: recordData.remarks,
         ...(billingPeriod && {
           billing_period_start: billingPeriod.start,
@@ -305,17 +362,18 @@ export default function CashierDashboard() {
         }),
       })
 
+      resetRecordData()
+      setIsRecording(false)
       setRecordingMessage({ type: 'success', message: '✓ Payment recorded successfully!' })
+      setTimeout(() => setRecordingMessage(null), 3000)
       
-      // Wait 2 seconds before closing to show success message
+      // Wait 3 seconds before closing to show success message
+      setSelectedPayment(null)
+      setCollectibles((currentPayments) => currentPayments.filter((payment) => payment.id !== selectedPayment.id))
       setTimeout(() => {
-        setSelectedPayment(null)
-        setCollectibles((currentPayments) => currentPayments.filter((payment) => payment.id !== selectedPayment.id))
-        setRecordData({ amount: '', method: 'cash', remarks: '' })
         setRecordingMessage(null)
-        // Reload data after closing modal
-        setTimeout(() => loadCashierData(), 100)
-      }, 2000)
+        loadCashierData()
+      }, 3000)
     } catch (error: any) {
       showGlobalNotice('Payment could not be recorded', error.message || 'Please check the payment details and try again.')
       setIsRecording(false)
@@ -365,7 +423,7 @@ export default function CashierDashboard() {
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_0.85fr]">
           <CashierAnalyticsPanel title="Today's Collection" subtitle="Payments recorded today" action="View Payments" href="/dashboard/payments">
             <div className="mb-2 text-3xl font-semibold text-[#28334b]">₱{parseAmount(todaysData?.totalCollected).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <p className="mb-4 text-xs text-[#9aa1b3]">{todaysData?.paymentCount || 0} payments recorded today</p>
+            <p className="mb-4 text-xs text-[#9aa1b3]">{Number(todaysData?.paymentCount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} payments recorded today</p>
             <div className="h-2 overflow-hidden rounded-full bg-[#eef0f5]"><div className="h-full rounded-full bg-[#42bdd9]" style={{ width: `${Math.min((todaysData?.paymentCount || 0) * 10, 100)}%` }} /></div>
           </CashierAnalyticsPanel>
 
@@ -412,32 +470,11 @@ export default function CashierDashboard() {
           <>
             <div 
               className="fixed inset-0 z-40 bg-[#28334b]/35 backdrop-blur-sm" 
-              onClick={(e) => {
-                // Only close if not recording and click is directly on backdrop
-                if (!isRecording && e.target === e.currentTarget) {
-                  setSelectedPayment(null)
-                  setRecordData({ amount: '', method: 'cash', remarks: '' })
-                  setRecordingMessage(null)
-                }
-              }}
             />
             <div className="fixed inset-0 flex items-center justify-center z-50 p-4 pointer-events-none">
               <div className="modal-shell max-w-md w-full max-h-[90vh] overflow-y-auto pointer-events-auto">
                 <div className="modal-header sticky top-0 flex items-center justify-between">
                   <h2 className="text-xl font-bold text-gray-900">Record Payment</h2>
-                  <button
-                    onClick={() => {
-                      if (!isRecording) {
-                        setSelectedPayment(null)
-                        setRecordData({ amount: '', method: 'cash', remarks: '' })
-                        setRecordingMessage(null)
-                      }
-                    }}
-                    disabled={isRecording}
-                    className="text-gray-500 hover:text-gray-700 text-2xl disabled:opacity-50"
-                  >
-                    ✕
-                  </button>
                 </div>
 
                 <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleRecordPayment(); }} className="modal-body space-y-4">
@@ -486,12 +523,20 @@ export default function CashierDashboard() {
                     <input
                       type="number"
                       step="0.01"
-                      max={selectedPayment.balance}
+                      min="0"
+                      max={Math.max(0, Number(selectedPayment.balance) || 0)}
                       value={recordData.amount}
-                      onChange={(e) =>
-                        setRecordData({ ...recordData, amount: e.target.value })
-                      }
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      onChange={(e) => {
+                        const nextValue = clampPaymentAmount(e.target.value, Number(selectedPayment.balance) || 0)
+                        setRecordData({ ...recordData, amount: nextValue })
+                      }}
+                      onWheel={(e) => e.preventDefault()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                          e.preventDefault()
+                        }
+                      }}
+                      className="no-number-spinner w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                       placeholder="Enter amount"
                       required
                     />
@@ -501,19 +546,63 @@ export default function CashierDashboard() {
                   </div>
 
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Paid Date</label>
+                    <input
+                      type="date"
+                      value={recordData.paidDate}
+                      onChange={(e) => setRecordData({ ...recordData, paidDate: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
                     <select
                       value={recordData.method}
-                      onChange={(e) =>
-                        setRecordData({ ...recordData, method: e.target.value })
-                      }
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      disabled={!recordData.paidDate}
+                      onChange={(e) => setRecordData({ ...recordData, method: e.target.value, provider: '', providerOther: '', referenceNumber: '' })}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
                     >
-                      <option value="cash">Cash</option>
-                      <option value="check">Check</option>
-                      <option value="bank_transfer">Bank Transfer</option>
+                      {PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                     </select>
                   </div>
+
+                  {requiresPaymentDetails(recordData.method) && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">{recordData.method === 'e_wallet' ? 'E-Wallet' : 'Bank'} Provider</label>
+                        <select
+                          value={recordData.provider}
+                          disabled={!recordData.paidDate}
+                          onChange={(e) => setRecordData({ ...recordData, provider: e.target.value })}
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
+                        >
+                          <option value="">Select provider</option>
+                          {getPaymentProviders(recordData.method).map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                        </select>
+                        {recordData.provider === 'Other' && (
+                          <input
+                            type="text"
+                            value={recordData.providerOther}
+                            onChange={(e) => setRecordData({ ...recordData, providerOther: e.target.value })}
+                            className="mt-2 w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            placeholder="Specify provider"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Reference Number</label>
+                        <input
+                          type="text"
+                          value={recordData.referenceNumber}
+                          disabled={!recordData.paidDate}
+                          onChange={(e) => setRecordData({ ...recordData, referenceNumber: e.target.value })}
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
+                          placeholder="Required"
+                        />
+                      </div>
+                    </>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
@@ -534,14 +623,14 @@ export default function CashierDashboard() {
                       disabled={isRecording || !recordData.amount}
                       className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
                     >
-                      {isRecording ? '⏳ Recording...' : '✓ Record Payment'}
+                      {isRecording ? 'Recording...' : 'Record Payment'}
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         if (!isRecording) {
                           setSelectedPayment(null)
-                          setRecordData({ amount: '', method: 'cash', remarks: '' })
+                          setRecordData({ amount: '', method: 'cash', provider: '', providerOther: '', referenceNumber: '', paidDate: '', remarks: '' })
                           setRecordingMessage(null)
                         }
                       }}
@@ -564,10 +653,19 @@ export default function CashierDashboard() {
             <p className="dashboard-muted mt-1">Last 6 months of collection activity</p>
           </div>
           
-          {paymentTrends.length > 0 && (
-            <div className="space-y-6">
+          <div className="space-y-6">
               {/* Month selector */}
               <div className="max-w-xs">
+                <label className="block text-sm font-medium mb-2 text-gray-700">Collection year</label>
+                <select
+                  value={trendYear}
+                  onChange={(e) => setTrendYear(e.target.value)}
+                  className="mb-4 px-4 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500"
+                >
+                  {Array.from({ length: 11 }, (_, index) => String(new Date().getFullYear() - 5 + index)).map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
                 <label className="block text-sm font-medium mb-2 text-gray-700">Filter by Month</label>
                 <select
                   value={trendMonth}
@@ -580,6 +678,18 @@ export default function CashierDashboard() {
                     </option>
                   ))}
                 </select>
+                <div className="mt-4 flex gap-2">
+                  {(['6-months', 'year'] as const).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setCollectionPeriod(period)}
+                      className={`rounded-md px-3 py-2 text-xs font-semibold ${collectionPeriod === period ? 'bg-[#5964c7] text-white' : 'border border-[#dfe2ec] text-[#5964c7]'}`}
+                    >
+                      {period === '6-months' ? '6 Months' : 'Full Year'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Chart */}
@@ -647,8 +757,7 @@ export default function CashierDashboard() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
+          </div>
         </div>
 
         {paymentTrends.length === 0 && !loading && (
@@ -716,7 +825,7 @@ export default function CashierDashboard() {
 
           {loading ? (
             <div className="text-center py-12">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-gray-400 border-r-transparent" />
+              <div className="loading-spinner" aria-hidden="true" />
               <p className="mt-2 text-gray-600">Loading...</p>
             </div>
           ) : collectibles.length === 0 ? (
@@ -725,10 +834,16 @@ export default function CashierDashboard() {
             </div>
           ) : (
             <div className="divide-y divide-[#eef0f5]">
-              {collectibles.map((payment) => (
+              {collectibles.slice((currentPage - 1) * 15, currentPage * 15).map((payment) => (
                 <div
                   key={payment.id}
-                  onClick={() => String(payment.status).toLowerCase() !== 'paid' && setSelectedPayment(payment)}
+                  onClick={() => {
+                    if (String(payment.status).toLowerCase() !== 'paid') {
+                      resetRecordData()
+                      setRecordingMessage(null)
+                      setSelectedPayment(payment)
+                    }
+                  }}
                   className={`px-2 py-4 ${
                     String(payment.status).toLowerCase() === 'paid'
                       ? 'bg-[#fafaff] cursor-default'
@@ -778,6 +893,7 @@ export default function CashierDashboard() {
                   </div>
                 </div>
               ))}
+              <Pagination currentPage={currentPage} totalItems={collectibles.length} onPageChange={setCurrentPage} />
             </div>
           )}
         </div>

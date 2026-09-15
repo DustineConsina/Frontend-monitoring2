@@ -6,16 +6,21 @@ import { useSearchParams } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { Contract } from '@/types'
+import Pagination from '@/components/Pagination'
+import { Eye } from 'lucide-react'
 
 function ContractsPageContent() {
   const searchParams = useSearchParams()
+  const tenantId = searchParams.get('tenantId') || ''
   const [contracts, setContracts] = useState<Contract[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all')
-  const [activatingId, setActivatingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [contractToDelete, setContractToDelete] = useState<any | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Modal state for add/edit contract
   const [showModal, setShowModal] = useState(false)
@@ -26,6 +31,7 @@ function ContractsPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [tenants, setTenants] = useState<any[]>([])
   const [spaces, setSpaces] = useState<any[]>([])
+  const [originalStartDate, setOriginalStartDate] = useState<string>('')
   const [formData, setFormData] = useState({
     tenantId: '',
     rentalSpaceId: '',
@@ -38,13 +44,20 @@ function ContractsPageContent() {
 
   useEffect(() => {
     fetchContracts()
-  }, [statusFilter])
+  }, [statusFilter, tenantId])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusFilter, searchTerm, tenantId])
 
   const fetchContracts = async () => {
     try {
       const params: any = {}
       if (statusFilter !== 'all') {
         params.status = statusFilter.toLowerCase()
+      }
+      if (tenantId) {
+        params.tenant_id = tenantId
       }
       const response = await apiClient.getContracts(params)
       
@@ -120,6 +133,7 @@ function ContractsPageContent() {
       spaceName.includes(searchLower)
     )
   }) : []
+  const paginatedContracts = filteredContracts.slice((currentPage - 1) * 15, currentPage * 15)
 
   const getStatusBadge = (status: string) => {
     const colors = {
@@ -133,64 +147,29 @@ function ContractsPageContent() {
     return colors[status as keyof typeof colors] || 'bg-slate-100 text-slate-800'
   }
 
-  const handleActivateContract = async (contractId: number, contractNumber: string) => {
-    if (!contractId) {
-      setError('Contract ID is missing')
+  const handleDeleteContract = async (contract: any) => {
+    const status = String(contract.status || '').toLowerCase()
+    if (!['terminated', 'expired'].includes(status)) {
+      setError('Only terminated or expired contracts can be deleted.')
       return
     }
-    
-    setActivatingId(contractId)
+    setContractToDelete(contract)
+  }
+
+  const confirmDeleteContract = async () => {
+    if (!contractToDelete) return
+
+    setDeletingId(Number(contractToDelete.id))
     try {
-      const token = localStorage.getItem('auth_token')
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-      
-      const activateUrl = `${apiUrl}/contracts/${contractId}/activate`
-      console.log('Activating contract:', { contractId, contractNumber, url: activateUrl })
-      
-      // Use the dedicated activate endpoint
-      const response = await fetch(activateUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
-      // First, get the raw text to see what we're actually getting
-      const responseText = await response.text()
-      console.log('Raw response:', responseText)
-      console.log('Status:', response.status)
-
-      let jsonData
-      try {
-        jsonData = JSON.parse(responseText)
-      } catch (parseError) {
-        console.error('Failed to parse JSON:', parseError)
-        // If response is ok but JSON parse fails, still consider it success
-        if (response.ok) {
-          setContracts(contracts.map(c => c.id && c.id.toString() === contractId.toString() ? { ...c, status: 'active' } : c))
-          setSuccessMessage(`✅ Contract ${contractNumber} activated!`)
-          setTimeout(() => setSuccessMessage(null), 3000)
-          setActivatingId(null)
-          return
-        }
-        throw new Error(`Server returned invalid response: ${responseText}`)
-      }
-
-      if (!response.ok) {
-        throw new Error(jsonData.message || jsonData.error || 'Failed to activate contract')
-      }
-
-      // Update local state
-      setContracts(contracts.map(c => c.id && c.id.toString() === contractId.toString() ? { ...c, status: 'active' } : c))
-      setSuccessMessage(`✅ Contract ${contractNumber} activated!`)
+      await apiClient.deleteContract(String(contractToDelete.id))
+      setContracts((current) => current.filter((item) => String(item.id) !== String(contractToDelete.id)))
+      setContractToDelete(null)
+      setSuccessMessage('Contract deleted successfully.')
       setTimeout(() => setSuccessMessage(null), 3000)
     } catch (err: any) {
-      console.error('Activate error:', err)
-      setError(err.message || 'Failed to activate contract')
-      setTimeout(() => setError(null), 5000)
+      setError(err.message || 'Failed to delete contract')
     } finally {
-      setActivatingId(null)
+      setDeletingId(null)
     }
   }
 
@@ -213,6 +192,7 @@ function ContractsPageContent() {
 
   const openAddModal = async () => {
     setEditingContractId(null)
+    setOriginalStartDate('')
     setFormData({
       tenantId: '',
       rentalSpaceId: '',
@@ -231,11 +211,13 @@ function ContractsPageContent() {
   }
 
   const openEditModal = async (contract: any) => {
+    const startStr = contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : ''
     setEditingContractId(contract.id)
+    setOriginalStartDate(startStr)
     setFormData({
       tenantId: contract.tenantId?.toString() || contract.tenant?.id?.toString() || '',
       rentalSpaceId: contract.rentalSpaceId?.toString() || contract.rentalSpace?.id?.toString() || '',
-      startDate: contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : '',
+      startDate: startStr,
       endDate: contract.endDate ? new Date(contract.endDate).toISOString().split('T')[0] : '',
       monthlyRent: contract.monthlyRental?.toString() || contract.monthlyRent?.toString() || '',
       securityDeposit: contract.depositAmount?.toString() || contract.securityDeposit?.toString() || '',
@@ -253,6 +235,7 @@ function ContractsPageContent() {
     if (!isSubmitting) {
       setShowModal(false)
       setEditingContractId(null)
+      setOriginalStartDate('')
       setModalError(null)
       setModalSuccess(null)
     }
@@ -285,6 +268,28 @@ function ContractsPageContent() {
     setModalError(null)
     setModalSuccess(null)
 
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    // Validate that start date is not in the past
+    if (!editingContractId && formData.startDate < todayStr) {
+      setModalError('Start date cannot be in the past.')
+      setIsSubmitting(false)
+      return
+    }
+
+    if (editingContractId && formData.startDate < todayStr && formData.startDate !== originalStartDate) {
+      setModalError('Start date cannot be set to a past date.')
+      setIsSubmitting(false)
+      return
+    }
+
+    // Validate that end date is after start date
+    if (formData.endDate && formData.endDate <= formData.startDate) {
+      setModalError('End date must be after the start date.')
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       const payload = {
         tenantId: parseInt(formData.tenantId),
@@ -300,10 +305,12 @@ function ContractsPageContent() {
         // Update existing contract
         await apiClient.updateContract(editingContractId.toString(), payload)
         setModalSuccess('✅ Contract updated successfully!')
+        setTimeout(() => setModalSuccess(null), 3000)
       } else {
         // Create new contract
         await apiClient.createContract(payload)
         setModalSuccess('✅ Contract created successfully!')
+        setTimeout(() => setModalSuccess(null), 3000)
       }
 
       // Refresh contracts list
@@ -327,7 +334,9 @@ function ContractsPageContent() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-6">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Contracts</h1>
-            <p className="text-slate-600 text-base mt-1">Manage rental contracts and agreements</p>
+            <p className="text-slate-600 text-base mt-1">
+              {tenantId ? `Contracts for tenant #${tenantId}` : 'Manage rental contracts and agreements'}
+            </p>
           </div>
           <button
             onClick={openAddModal}
@@ -396,9 +405,8 @@ function ContractsPageContent() {
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="relative w-12 h-12 mx-auto mb-4">
-                  <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
-                  <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 border-r-blue-600 animate-spin"></div>
+                <div className="mx-auto mb-4 flex h-12 items-center justify-center">
+                  <div className="loading-spinner" aria-hidden="true"></div>
                 </div>
                 <p className="text-gray-600 font-medium">Loading contracts...</p>
               </div>
@@ -408,7 +416,7 @@ function ContractsPageContent() {
               <p className="text-gray-500 mb-4">No contracts found</p>
               <button
                 onClick={openAddModal}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                className="action-primary inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2"
               >
                 + Create Contract
               </button>
@@ -428,7 +436,7 @@ function ContractsPageContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredContracts.map((contract) => (
+                  {paginatedContracts.map((contract) => (
                     <tr key={contract.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Link
@@ -467,29 +475,25 @@ function ContractsPageContent() {
                         <div className="flex gap-2">
                           <Link
                             href={`/dashboard/contracts/${contract.id}`}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded transition"
+                            title="View Contract"
+                            aria-label="View Contract"
+                            className="action-primary inline-flex h-8 w-8 items-center justify-center rounded-lg border"
                           >
-                            View
+                            <Eye className="h-4 w-4" aria-hidden="true" />
                           </Link>
                           <button
                             onClick={() => openEditModal(contract)}
-                            className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-2 py-1 rounded transition"
+                            className="action-edit rounded-lg border px-3 py-1 text-xs font-semibold"
                           >
                             Edit
                           </button>
-                          <Link
-                            href={`/dashboard/contracts/${contract.id}/qr`}
-                            className="text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded transition"
-                          >
-                            QR
-                          </Link>
-                          {(contract.status?.toLowerCase() === 'pending' || !['active', 'expired', 'terminated'].includes(contract.status?.toLowerCase() || '')) && (
+                          {['terminated', 'expired'].includes(String(contract.status || '').toLowerCase()) && (
                             <button
-                              onClick={() => handleActivateContract(parseInt(contract.id || '0'), contract.contractNumber || `Contract ${contract.id}`)}
-                              disabled={activatingId === parseInt(contract.id || '0')}
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 px-2 py-1 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleDeleteContract(contract)}
+                              disabled={deletingId === Number(contract.id)}
+                              className="action-danger rounded-lg border px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed"
                             >
-                              Activate
+                              {deletingId === Number(contract.id) ? 'Deleting...' : 'Delete'}
                             </button>
                           )}
                         </div>
@@ -503,6 +507,10 @@ function ContractsPageContent() {
         </div>
 
         {/* Summary */}
+        {!isLoading && filteredContracts.length > 0 && (
+          <Pagination currentPage={currentPage} totalItems={filteredContracts.length} onPageChange={setCurrentPage} />
+        )}
+
         {!isLoading && filteredContracts.length > 0 && (
           <div className="text-sm text-gray-600">
             Showing <span className="font-semibold text-gray-900">{filteredContracts.length}</span> of <span className="font-semibold text-gray-900">{contracts.length}</span> contracts
@@ -520,20 +528,13 @@ function ContractsPageContent() {
                 <h3 className="text-xl font-bold text-gray-900">
                   {editingContractId ? 'Edit Contract' : 'Add New Contract'}
                 </h3>
-                <button
-                  onClick={closeModal}
-                  disabled={isSubmitting}
-                  className="text-gray-500 hover:text-gray-700 text-2xl disabled:opacity-50"
-                >
-                  ✕
-                </button>
               </div>
 
               {/* Modal Content */}
               {modalLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+                    <div className="loading-spinner" aria-hidden="true" />
                     <p className="mt-4 text-gray-600">Loading...</p>
                   </div>
                 </div>
@@ -614,6 +615,7 @@ function ContractsPageContent() {
                         type="date"
                         name="startDate"
                         required
+                        min={editingContractId ? (originalStartDate && originalStartDate < new Date().toISOString().split('T')[0] ? originalStartDate : new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0]}
                         value={formData.startDate}
                         onChange={handleFormChange}
                         disabled={isSubmitting}
@@ -629,6 +631,7 @@ function ContractsPageContent() {
                         type="date"
                         name="endDate"
                         required
+                        min={formData.startDate || new Date().toISOString().split('T')[0]}
                         value={formData.endDate}
                         onChange={handleFormChange}
                         disabled={isSubmitting}
@@ -697,14 +700,14 @@ function ContractsPageContent() {
                       type="button"
                       onClick={closeModal}
                       disabled={isSubmitting}
-                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 font-medium"
+                      className="action-secondary rounded-lg border px-4 py-2 font-medium"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="px-5 py-2.5 bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                      className="action-primary rounded-lg border px-5 py-2.5 font-medium disabled:cursor-not-allowed"
                     >
                       {isSubmitting ? 'Saving...' : editingContractId ? 'Update Contract' : 'Create Contract'}
                     </button>
@@ -714,6 +717,25 @@ function ContractsPageContent() {
             </div>
             </div>
           </>
+        )}
+
+        {contractToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+              <h3 className="text-xl font-bold text-gray-900">Delete Contract?</h3>
+              <p className="mt-3 text-sm leading-6 text-gray-600">
+                Delete <span className="font-semibold text-gray-900">{contractToDelete.contractNumber || contractToDelete.contract_number}</span>? This action cannot be undone.
+              </p>
+              <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
+                <button type="button" onClick={() => setContractToDelete(null)} disabled={deletingId !== null} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={confirmDeleteContract} disabled={deletingId !== null} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  {deletingId !== null ? 'Deleting...' : 'Delete Contract'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </ProtectedRoute>

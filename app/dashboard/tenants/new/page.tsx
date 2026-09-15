@@ -10,7 +10,6 @@ export default function NewTenantPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -21,7 +20,7 @@ export default function NewTenantPage() {
     contactPerson: '',
     businessType: '',
     businessAddress: '',
-    tin: '',
+    businessPermitNumber: '',
   })
   const [debugInfo, setDebugInfo] = useState<string | null>(null)
 
@@ -33,12 +32,17 @@ export default function NewTenantPage() {
       firstName: 'First Name',
       lastName: 'Last Name',
       email: 'Email Address',
+      contactNumber: 'Contact Number',
       contactPerson: 'Contact Person',
       businessName: 'Business Name',
+      businessType: 'Business Type',
+      businessAddress: 'Business Address',
+      address: 'Residential Address',
+      businessPermitNumber: 'Business Permit Number',
     }
     
     const missingFields = Object.entries(requiredFields)
-      .filter(([key]) => !formData[key as keyof typeof formData])
+      .filter(([key]) => !String(formData[key as keyof typeof formData]).trim())
       .map(([_, label]) => label)
     
     if (missingFields.length > 0) {
@@ -46,7 +50,7 @@ export default function NewTenantPage() {
       return
     }
 
-    if (formData.contactNumber && !/^09\d{9}$/.test(formData.contactNumber)) {
+    if (!/^09\d{9}$/.test(formData.contactNumber)) {
       alert('Contact number must start with 09 and contain exactly 11 digits.')
       return
     }
@@ -54,16 +58,20 @@ export default function NewTenantPage() {
     setIsLoading(true)
 
     try {
+      const qrAccessCode = String(Math.floor(10000000 + Math.random() * 90000000))
+      const { businessPermitNumber, ...tenantFormData } = formData
       const response = await apiClient.createTenant({
-        ...formData,
+        ...tenantFormData,
+        business_permit_number: businessPermitNumber,
+        qr_access_code: qrAccessCode,
         role: 'TENANT',
       })
       
       console.log('Tenant created successfully:', response)
-      setSuccessMessage(`✅ Tenant ${formData.firstName} ${formData.lastName} created successfully!`)
-      setTimeout(() => {
-        router.push('/dashboard/tenants')
-      }, 2000)
+      setSuccessMessage(null)
+      setIsLoading(false)
+      window.location.replace('/dashboard/tenants')
+      return
     } catch (err: any) {
       console.error('Error creating tenant:', err)
       const errorMsg = err.message || 'Failed to create tenant'
@@ -98,9 +106,9 @@ export default function NewTenantPage() {
           <Link
             href="/dashboard/tenants"
             title="Back"
-            className="w-10 h-10 flex items-center justify-center text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="back-action"
           >
-            🔙
+            Back
           </Link>
         </div>
 
@@ -164,7 +172,7 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contact Number
+                    Contact Number <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="tel"
@@ -174,10 +182,11 @@ export default function NewTenantPage() {
                     maxLength={11}
                     pattern="09[0-9]{9}"
                     inputMode="numeric"
+                    required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="09123456789"
                   />
-                  <p className="mt-1 text-xs text-gray-500">Optional. Enter 11 digits starting with 09.</p>
+                  <p className="mt-1 text-xs text-gray-500">Enter 11 digits starting with 09.</p>
                 </div>
 
                 <div>
@@ -218,13 +227,14 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Type
+                    Business Type <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     name="businessType"
                     value={formData.businessType}
                     onChange={handleChange}
+                    required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="e.g., Retail, Wholesale, Service"
                   />
@@ -232,15 +242,16 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    TIN (Tax Identification Number)
+                    Business Permit Number <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    name="tin"
-                    value={formData.tin}
+                    name="businessPermitNumber"
+                    value={formData.businessPermitNumber}
                     onChange={handleChange}
+                    required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder="000-000-000-000"
+                    placeholder="Enter business permit number"
                   />
                 </div>
               </div>
@@ -250,12 +261,13 @@ export default function NewTenantPage() {
             <div className="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Residential Address
+                  Residential Address <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
+                  required
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
                   placeholder="Your residential address..."
@@ -264,12 +276,13 @@ export default function NewTenantPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Business Address
+                  Business Address <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   name="businessAddress"
                   value={formData.businessAddress}
                   onChange={handleChange}
+                  required
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
                   placeholder="Your business address..."
@@ -282,9 +295,9 @@ export default function NewTenantPage() {
               <Link
                 href="/dashboard/tenants"
                 title="Cancel"
-                className="w-10 h-10 flex items-center justify-center border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
               >
-                ✕
+                Cancel
               </Link>
               <button
                 type="submit"

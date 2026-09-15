@@ -37,79 +37,99 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_32%),linear-gradient(180deg,#f8fbff_0%,#edf5ff_100%)] px-4 py-8">
-      <div className="w-full max-w-md">
-        <div className="rounded-[28px] border border-sky-100 bg-white/90 p-7 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur-sm">
-          <div className="mb-8 text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="rounded-2xl border border-sky-100 bg-sky-50 p-3 shadow-sm">
-                <PFDALogo />
-              </div>
-            </div>
-            <div className="mb-2 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">
+    <div className="flex min-h-screen flex-col overflow-hidden bg-[#ecf2f3] lg:flex-row">
+      <section
+        className="relative min-h-[42vh] overflow-hidden bg-cover bg-center lg:min-h-screen lg:w-[62%] lg:rounded-r-[42%]"
+        style={{ backgroundImage: "url('/loginbg.png')" }}
+      >
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(8,54,62,0.80),rgba(10,79,86,0.42)_52%,rgba(11,31,45,0.78))]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(255,255,255,0.18),transparent_30%),radial-gradient(circle_at_85%_80%,rgba(210,139,50,0.18),transparent_28%)]" />
+        <div className="relative flex h-full min-h-[42vh] items-end p-7 text-white sm:p-10 lg:min-h-screen lg:items-end lg:p-20">
+          <div className="max-w-md">
+            <div className="mb-5 inline-flex rounded-full border border-white/40 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-white backdrop-blur-sm">
               PFDA
             </div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900">Contract Management</h1>
-            <p className="mt-2 text-sm text-slate-600">Philippine Fisheries Development Authority</p>
-            <p className="mt-1 text-xs text-slate-500">Bulan, Sorsogon Fish Port</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-700">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                placeholder="your.email@example.com"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-700">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                placeholder="••••••••"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="mt-6 w-full rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-sm font-bold text-white shadow-[0_12px_24px_rgba(37,99,235,0.25)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent" />
-                  <span>Signing in...</span>
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </button>
-          </form>
-
-          <div className="mt-6 border-t border-slate-200 pt-4 text-center text-xs text-slate-500">
-            <p>Contact your administrator for account access</p>
+            <h2 className="text-3xl font-black leading-tight sm:text-4xl lg:text-6xl">Bulan Fish Port Complex</h2>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-white/85 lg:text-base">Philippine Fisheries Development Authority</p>
           </div>
         </div>
+      </section>
 
-        <div className="mt-6 text-center text-[11px] uppercase tracking-[0.18em] text-slate-500">
-          <p>© 2026 PFDA Bulan, Sorsogon</p>
+      <section className="relative flex flex-1 items-center justify-center overflow-hidden bg-[linear-gradient(135deg,#f7faf9_0%,#edf5f4_46%,#f8f4ec_100%)] px-4 py-10 sm:px-8 lg:w-[38%] lg:px-10 xl:px-16">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,rgba(255,255,255,0.72)_44%,transparent_45%,transparent_100%)]" />
+        <div className="relative z-10 w-full max-w-sm">
+          <div className="rounded-[28px] border border-white/80 bg-white/90 p-7 shadow-[0_28px_80px_rgba(8,54,62,0.13)] backdrop-blur-md sm:p-8">
+            <div className="mb-8 text-center">
+              <div className="mb-4 flex justify-center">
+                <div className="rounded-2xl border border-[#dbeef2] bg-[#edf9fb] p-3 shadow-sm">
+                  <PFDALogo />
+                </div>
+              </div>
+              <div className="mb-2 inline-flex items-center rounded-full border border-[#bfdbf2] bg-[#eef6ff] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[#0f5d8d]">
+                PFDA
+              </div>
+              <h1 className="text-3xl font-black tracking-tight text-[#0f1c2d]">Contract Management</h1>
+              <p className="mt-2 text-sm text-slate-600">Philippine Fisheries Development Authority</p>
+              <p className="mt-1 text-xs text-slate-500">Bulan, Sorsogon Fish Port</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-700">
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
+                  placeholder="your.email@example.com"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-700">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="mt-6 w-full rounded-xl bg-[linear-gradient(135deg,#0a7d8d_0%,#0c5d74_100%)] px-4 py-3 text-sm font-bold text-white shadow-[0_12px_24px_rgba(10,125,141,0.24)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="loading-spinner" aria-hidden="true" />
+                    <span>Signing in...</span>
+                  </span>
+                ) : (
+                  'Sign In'
+                )}
+              </button>
+            </form>
+
+            <div className="mt-6 border-t border-slate-200 pt-4 text-center text-xs text-slate-500">
+              <p>Contact your administrator for account access</p>
+            </div>
+          </div>
+
+          <div className="mt-6 text-center text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            <p>© 2026 PFDA Bulan, Sorsogon</p>
+          </div>
         </div>
-      </div>
+      </section>
 
       {error && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/30 px-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby="login-error-title">
@@ -124,7 +144,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setError('')}
-              className="w-full rounded-md bg-[#5148e5] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4038c7]"
+              className="w-full rounded-md bg-[#0a7d8d] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0a5f6c]"
             >
               Try again
             </button>

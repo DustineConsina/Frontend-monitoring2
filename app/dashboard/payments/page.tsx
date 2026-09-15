@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Payment } from '@/types'
+import { getPaymentProviders, getProviderValue, PAYMENT_METHODS, requiresPaymentDetails } from '@/lib/payment-methods'
+import Pagination from '@/components/Pagination'
+import { Eye } from 'lucide-react'
 
 function getBillingPeriodLabel(dueDate?: string): string {
   if (!dueDate) return 'N/A'
@@ -23,16 +25,78 @@ function getBillingPeriodLabel(dueDate?: string): string {
   return `${formatDate(startDate)} - ${formatDate(endDate)}`
 }
 
+function getBillingPeriod(dueDate: string): { start: string; end: string } | null {
+  const endDate = new Date(`${dueDate}T00:00:00`)
+  if (Number.isNaN(endDate.getTime())) return null
+
+  const startDate = new Date(endDate)
+  startDate.setMonth(startDate.getMonth() - 1)
+  const originalDay = endDate.getDate()
+  const lastDay = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0).getDate()
+  startDate.setDate(Math.min(originalDay, lastDay))
+
+  const formatDate = (date: Date) => date.toISOString().slice(0, 10)
+  return { start: formatDate(startDate), end: formatDate(endDate) }
+}
+
+function getNextContractDueDate(contract: any, payments: any[]): string {
+  const startDateValue = String(contract?.startDate || contract?.start_date || '').slice(0, 10)
+  const startDate = new Date(`${startDateValue}T00:00:00`)
+  if (Number.isNaN(startDate.getTime())) return new Date().toISOString().slice(0, 10)
+
+  const contractPayments = payments
+    .filter((payment) => String(payment.contractId || payment.contract_id || payment.contract?.id) === String(contract.id))
+    .map((payment) => String(payment.dueDate || payment.due_date || '').slice(0, 10))
+    .filter((dueDate) => dueDate)
+
+  if (contractPayments.length === 0) return startDateValue
+
+  const latestDueDate = contractPayments.sort().at(-1) || startDateValue
+  const latestDate = new Date(`${latestDueDate}T00:00:00`)
+  const nextMonth = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 1)
+  const lastDayOfNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
+  nextMonth.setDate(Math.min(latestDate.getDate(), lastDayOfNextMonth))
+  return nextMonth.toISOString().slice(0, 10)
+}
+
+function getContractMonthlyRent(contract: any): number {
+  const rentalSpace = contract?.rentalSpace || contract?.rental_space
+  return parseFloat(String(
+    contract?.monthlyRental || contract?.monthly_rental || contract?.monthlyRent ||
+    rentalSpace?.monthlyRental || rentalSpace?.monthly_rental || rentalSpace?.baseRentalRate || rentalSpace?.base_rental_rate || 0,
+  )) || 0
+}
+
 export default function PaymentsPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [payments, setPayments] = useState<Payment[]>([])
+  const [contracts, setContracts] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [monthFilter, setMonthFilter] = useState('')
   const [sortColumn, setSortColumn] = useState('due_date')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null)
+  const [showRecordModal, setShowRecordModal] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [contractSearchTerm, setContractSearchTerm] = useState('')
+  const [isContractDropdownOpen, setIsContractDropdownOpen] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordForm, setRecordForm] = useState({
+    contractId: '',
+    amount: '',
+    dueDate: new Date().toISOString().slice(0, 10),
+    paidDate: '',
+    paymentMethod: 'cash',
+    paymentProvider: '',
+    paymentProviderOther: '',
+    referenceNumber: '',
+    remarks: '',
+  })
 
   // Only cashiers can record and edit payments
   const canRecordPayments = user?.role && user.role.toUpperCase() === 'CASHIER'
@@ -41,13 +105,17 @@ export default function PaymentsPage() {
     fetchPayments()
   }, [])
 
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, statusFilter, monthFilter])
+
 
 
   const fetchPayments = async () => {
     try {
       // Fetch both payments and contracts for amount calculations
       const [paymentsResp, contractsResp] = await Promise.all([
-        apiClient.getPayments(),
+        apiClient.getPayments(undefined, { per_page: 1000 }),
         apiClient.getContracts(),
       ])
       
@@ -64,7 +132,8 @@ export default function PaymentsPage() {
         contractsArray = contractsResp
       }
       
-      const contractMap = new Map(contractsArray.map((c: any) => [c.id, c]))
+      const contractMap = new Map(contractsArray.map((c: any) => [String(c.id), c]))
+      setContracts(contractsArray)
       
       // Extract payments
       let paymentsData = []
@@ -78,10 +147,24 @@ export default function PaymentsPage() {
       
       console.log('Extracted payments array:', paymentsData.length)
       
+      const activeContractIds = new Set(contractsArray.map((contract: any) => String(contract.id)))
+
+      // Ignore stale payment rows whose contract no longer exists. This prevents orphaned payments
+      // from showing as N/A after a contract is deleted.
+      const validPayments = paymentsData.filter((payment: any) => {
+        const paymentContractId = payment.contractId || payment.contract_id || payment.contract?.id
+        const fallbackContract = payment.contract || contractMap.get(String(paymentContractId))
+        return Boolean(fallbackContract) || (!paymentContractId && Boolean(payment.contract))
+      })
+      
       // Map payments with proper amount calculations using contract fallback
-      const mappedPayments = paymentsData.map((p: any) => {
+      const mappedPayments = validPayments.map((p: any) => {
         // Get the contract to use for fallback amounts
-        const contract = p.contract || contractMap.get(p.contract_id)
+        const contract = p.contract || contractMap.get(String(p.contract_id || p.contractId || p.contract?.id))
+
+        if (!contract && p.contractId) {
+          activeContractIds.delete(String(p.contractId))
+        }
         
         // Get amount_due - use payment value, fallback to contract's monthly_rental
         let amountDue = parseFloat(p.amountDue || p.amount_due || 0)
@@ -110,8 +193,7 @@ export default function PaymentsPage() {
           interestAmount,
           totalAmount,
           amountPaid,
-          // Calculate remaining balance
-          balance: totalAmount - amountPaid,
+          balance: Math.max(0, totalAmount - amountPaid),
           dueDate: p.dueDate || p.due_date,
           billingPeriodStart: p.billingPeriodStart || p.billing_period_start,
           billingPeriodEnd: p.billingPeriodEnd || p.billing_period_end,
@@ -133,6 +215,131 @@ export default function PaymentsPage() {
     }
   }
 
+  const closeRecordModal = () => {
+    if (isRecording) return
+    setShowRecordModal(false)
+    setContractSearchTerm('')
+    setIsContractDropdownOpen(false)
+    setRecordForm({
+      contractId: '',
+      amount: '',
+      dueDate: new Date().toISOString().slice(0, 10),
+      paidDate: '',
+      paymentMethod: 'cash',
+      paymentProvider: '',
+      paymentProviderOther: '',
+      referenceNumber: '',
+      remarks: '',
+    })
+  }
+
+  const openRecordModal = () => {
+    closeRecordModal()
+    setShowRecordModal(true)
+  }
+
+  const openDeleteModal = (payment: Payment) => {
+    setPaymentToDelete(payment)
+    setShowDeleteModal(true)
+  }
+
+  const confirmDeletePayment = async () => {
+    if (!paymentToDelete || !paymentToDelete.id) return
+
+    try {
+      setDeletingPaymentId(paymentToDelete.id)
+      await apiClient.deletePayment(String(paymentToDelete.id))
+      setShowDeleteModal(false)
+      setPaymentToDelete(null)
+      await fetchPayments()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete payment.')
+    } finally {
+      setDeletingPaymentId(null)
+    }
+  }
+
+  const handleRecordFormChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = event.target
+    if (name === 'contractId') {
+      const selectedContract = contracts.find((contract) => String(contract.id) === value)
+      setRecordForm((current) => ({
+        ...current,
+        contractId: value,
+        amount: selectedContract ? String(getContractMonthlyRent(selectedContract)) : '',
+        dueDate: selectedContract ? getNextContractDueDate(selectedContract, payments) : current.dueDate,
+      }))
+      return
+    }
+    if (name === 'paymentMethod' && value === 'cash') {
+      setRecordForm((current) => ({ ...current, paymentMethod: value, paymentProvider: '', paymentProviderOther: '', referenceNumber: '' }))
+      return
+    }
+    setRecordForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleRecordPayment = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const selectedContract = contracts.find((contract) => String(contract.id) === recordForm.contractId)
+    if (!selectedContract) {
+      alert('Please select a valid contract.')
+      return
+    }
+
+    const amount = Number(recordForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('Please enter a valid payment amount.')
+      return
+    }
+
+    const paymentProvider = getProviderValue(recordForm.paymentProvider, recordForm.paymentProviderOther)
+    if (recordForm.paidDate && requiresPaymentDetails(recordForm.paymentMethod) && !paymentProvider) {
+      alert('Select a payment provider for this payment.')
+      return
+    }
+    if (recordForm.paidDate && requiresPaymentDetails(recordForm.paymentMethod) && !recordForm.referenceNumber.trim()) {
+      alert(`Reference number is required for ${recordForm.paymentMethod === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer'} payments.`)
+      return
+    }
+
+    const billingPeriod = getBillingPeriod(recordForm.dueDate)
+    const duplicatePayment = payments.some((payment: any) => {
+      const paymentContractId = payment.contractId || payment.contract_id || payment.contract?.id
+      const paymentPeriodStart = String(payment.billingPeriodStart || payment.billing_period_start || getBillingPeriod(payment.dueDate || payment.due_date || '')?.start || '').slice(0, 10)
+      return String(paymentContractId) === String(selectedContract.id) && paymentPeriodStart === billingPeriod?.start
+    })
+
+    if (duplicatePayment) {
+      alert('A payment for this contract and billing period already exists.')
+      return
+    }
+
+    setIsRecording(true)
+    try {
+      await apiClient.createPayment({
+        contract_id: selectedContract.id,
+        tenant_id: selectedContract.tenant?.id || selectedContract.tenant_id,
+        amount_due: amount,
+        due_date: recordForm.dueDate,
+        ...(recordForm.paidDate ? {
+          payment_method: recordForm.paymentMethod,
+          payment_provider: paymentProvider || null,
+          reference_number: recordForm.referenceNumber.trim() || null,
+        } : {}),
+        remarks: recordForm.remarks,
+        ...(recordForm.paidDate ? { payment_date: recordForm.paidDate } : {}),
+        ...(billingPeriod ? { billing_period_start: billingPeriod.start, billing_period_end: billingPeriod.end } : {}),
+      })
+      setIsRecording(false)
+      closeRecordModal()
+      await fetchPayments()
+    } catch (err: any) {
+      alert(err.message || 'Failed to record payment.')
+    } finally {
+      setIsRecording(false)
+    }
+  }
+
   const filteredPayments = Array.isArray(payments) ? payments.filter((payment) => {
     // Get contract number from payment object (may be nested)
     const contractNumber = payment.contract?.contractNumber || payment.contract?.contract_number || ''
@@ -150,7 +357,7 @@ export default function PaymentsPage() {
       const [year, month] = monthFilter.split('-')
       matchesMonth = dueDate.getFullYear() === parseInt(year) && (dueDate.getMonth() + 1) === parseInt(month)
     }
-    
+
     return matchesSearch && matchesStatus && matchesMonth
   }).sort((a, b) => {
     let aValue: any, bValue: any
@@ -228,6 +435,25 @@ export default function PaymentsPage() {
     .reduce((sum, p) => sum + parseFloat(String(p.balance || 0)), 0)
 
   const totalPaymentCount = filteredPayments.length
+  const paginatedPayments = filteredPayments.slice((currentPage - 1) * 15, currentPage * 15)
+
+  const searchableContracts = contracts.filter((contract) => {
+    const contractNumber = String(contract.contractNumber || contract.contract_number || '').trim()
+    const tenantName = String(
+      contract.tenant?.user?.name ||
+      contract.tenant?.name ||
+      contract.tenant?.contact_person ||
+      contract.tenant?.contactPerson ||
+      contract.tenant?.business_name ||
+      contract.tenant?.businessName ||
+      ''
+    ).trim()
+    const query = contractSearchTerm.trim().toLowerCase()
+
+    if (!query) return true
+
+    return `${tenantName} ${contractNumber}`.toLowerCase().includes(query)
+  })
 
   return (
     <ProtectedRoute>
@@ -240,30 +466,40 @@ export default function PaymentsPage() {
           </div>
           <div className="flex gap-2">
             {canRecordPayments && (
-              <Link
-                href="/dashboard/payments/new"
+              <button
+                type="button"
+                onClick={openRecordModal}
                 title="Record Payment"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                className="action-success inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2"
               >
                 + Record Payment
-              </Link>
+              </button>
             )}
           </div>
         </div>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Total Paid</p>
-            <p className="text-3xl font-bold">₱{totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <div className="rounded-2xl border border-[#d8ece7] bg-[linear-gradient(135deg,#0d5f6d_0%,#0c7d8b_100%)] p-6 text-white shadow-[0_18px_38px_rgba(13,95,109,0.18)]">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d4f3f8]">Total Paid</p>
+              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#e9f9fb]">Settled</span>
+            </div>
+            <p className="text-3xl font-black tracking-tight">₱{totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
-          <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Total Pending</p>
-            <p className="text-3xl font-bold">₱{totalPending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <div className="rounded-2xl border border-[#f1e4c9] bg-[linear-gradient(135deg,#c77d1a_0%,#d9a14b_100%)] p-6 text-white shadow-[0_18px_38px_rgba(199,125,26,0.18)]">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#fff4df]">Total Pending</p>
+              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#fff7ea]">Review</span>
+            </div>
+            <p className="text-3xl font-black tracking-tight">₱{totalPending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
-          <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Total Payments</p>
-            <p className="text-3xl font-bold">{totalPaymentCount}</p>
+          <div className="rounded-2xl border border-[#dfeaf6] bg-[linear-gradient(135deg,#275a8b_0%,#3b79b5_100%)] p-6 text-white shadow-[0_18px_38px_rgba(39,90,139,0.18)]">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#eaf2ff]">Total Payments</p>
+              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#edf5ff]">Count</span>
+            </div>
+            <p className="text-3xl font-black tracking-tight">{totalPaymentCount}</p>
           </div>
         </div>
 
@@ -285,7 +521,10 @@ export default function PaymentsPage() {
               type="month"
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white"
+              min="2000-01"
+              max="2100-12"
+              aria-label="Filter payments by month and year"
+              className="w-full cursor-pointer px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white"
             />
           </div>
           <div>
@@ -309,7 +548,7 @@ export default function PaymentsPage() {
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-gray-400 border-r-transparent" />
+                <div className="loading-spinner" aria-hidden="true" />
                 <p className="mt-4 text-gray-600">Loading payments...</p>
               </div>
             </div>
@@ -334,7 +573,7 @@ export default function PaymentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredPayments.map((payment) => {
+                  {paginatedPayments.map((payment) => {
                     const contractStatus = payment.contract?.status || 'N/A';
                     const contractStatusColors = {
                       active: 'bg-green-100 text-green-800',
@@ -381,9 +620,11 @@ export default function PaymentsPage() {
                           <div className="flex gap-2">
                             <button 
                               onClick={() => router.push(`/dashboard/payments/${payment.id}`)}
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded transition"
+                              title="View Payment"
+                              aria-label="View Payment"
+                              className="action-primary inline-flex h-8 w-8 items-center justify-center rounded-lg border"
                             >
-                              View
+                              <Eye className="h-4 w-4" aria-hidden="true" />
                             </button>
                             {canRecordPayments && (
                               <button 
@@ -392,6 +633,16 @@ export default function PaymentsPage() {
                                 className={`px-2 py-1 rounded transition ${balanceAmount === 0 || contractStatus === 'terminated' ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'text-green-600 hover:text-green-700 hover:bg-green-50'}`}
                               >
                                 Edit
+                              </button>
+                            )}
+                            {canRecordPayments && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteModal(payment)}
+                                disabled={deletingPaymentId === String(payment.id ?? '')}
+                                className="action-danger rounded-lg border px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed"
+                              >
+                                {deletingPaymentId === String(payment.id ?? '') ? 'Deleting...' : 'Delete'}
                               </button>
                             )}
                           </div>
@@ -406,11 +657,172 @@ export default function PaymentsPage() {
         </div>
 
         {!isLoading && filteredPayments.length > 0 && (
+          <Pagination currentPage={currentPage} totalItems={filteredPayments.length} onPageChange={setCurrentPage} />
+        )}
+
+        {!isLoading && filteredPayments.length > 0 && (
           <div className="text-sm text-gray-600">
             Showing {filteredPayments.length} of {payments.length} payments
           </div>
         )}
       </div>
+
+      {showDeleteModal && paymentToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(event) => event.target === event.currentTarget && setShowDeleteModal(false)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between border-b border-gray-200 pb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Delete Payment</h3>
+                <p className="mt-1 text-sm text-gray-500">This action will permanently remove the payment record.</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-700">
+                Are you sure you want to delete <span className="font-semibold">{paymentToDelete.paymentNumber || paymentToDelete.payment_number || 'this payment'}</span>?
+              </p>
+              <p className="text-xs text-gray-500">
+                This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
+              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={deletingPaymentId !== null} className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button>
+              <button type="button" onClick={confirmDeletePayment} disabled={deletingPaymentId !== null} className="action-danger rounded-lg border px-4 py-2 text-sm font-semibold">
+                {deletingPaymentId === String(paymentToDelete.id ?? '') ? 'Deleting...' : 'Delete Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRecordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between border-b border-gray-200 pb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Record Payment</h3>
+                <p className="mt-1 text-sm text-gray-500">Add a payment without leaving this page.</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleRecordPayment} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Contract</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractSearchTerm}
+                    onFocus={() => setIsContractDropdownOpen(true)}
+                    onChange={(event) => {
+                      setContractSearchTerm(event.target.value)
+                      setIsContractDropdownOpen(true)
+                    }}
+                    placeholder="Search tenant or contract number"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-9 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    required={!recordForm.contractId}
+                  />
+                  <button
+                    type="button"
+                    aria-label={isContractDropdownOpen ? 'Close contract list' : 'Open contract list'}
+                    aria-expanded={isContractDropdownOpen}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setIsContractDropdownOpen((isOpen) => !isOpen)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700"
+                  >
+                    <span className={isContractDropdownOpen ? 'inline-block rotate-180' : 'inline-block'}>⌄</span>
+                  </button>
+                  {isContractDropdownOpen && (
+                    <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                      {searchableContracts.filter((contract) => String(contract.status || '').toLowerCase() !== 'terminated').length > 0 ? searchableContracts.filter((contract) => String(contract.status || '').toLowerCase() !== 'terminated').map((contract) => {
+                        const contractNumber = contract.contractNumber || contract.contract_number || `Contract ${contract.id}`
+                        const tenantName = contract.tenant?.user?.name || contract.tenant?.name || contract.tenant?.contact_person || contract.tenant?.contactPerson || contract.tenant?.business_name || contract.tenant?.businessName || 'Unknown tenant'
+                        return (
+                          <button
+                            key={contract.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              handleRecordFormChange({ target: { name: 'contractId', value: String(contract.id) } } as React.ChangeEvent<HTMLInputElement>)
+                              setContractSearchTerm(`${tenantName} — ${contractNumber}`)
+                              setIsContractDropdownOpen(false)
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50"
+                          >
+                            {tenantName} — {contractNumber}
+                          </button>
+                        )
+                      }) : <p className="px-3 py-2 text-sm text-gray-500">No matching contracts</p>}
+                    </div>
+                  )}
+                  <input type="hidden" name="contractId" value={recordForm.contractId} required />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700">Amount (₱)</label>
+                  <input name="amount" type="number" min="0.01" step="0.01" value={recordForm.amount} onChange={handleRecordFormChange} required className="no-number-spinner w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700">Due Date</label>
+                  <input name="dueDate" type="date" value={recordForm.dueDate} onChange={handleRecordFormChange} required className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Paid Date (optional)</label>
+                <input
+                  name="paidDate"
+                  type="date"
+                  value={recordForm.paidDate}
+                  onChange={(event) => {
+                    handleRecordFormChange(event)
+                    if (!event.target.value) setRecordForm((current) => ({ ...current, paymentMethod: 'cash', paymentProvider: '', paymentProviderOther: '', referenceNumber: '' }))
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Payment Method</label>
+                <select name="paymentMethod" value={recordForm.paymentMethod} onChange={handleRecordFormChange} disabled={!recordForm.paidDate} className="w-full appearance-none rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-gray-100">
+                  {PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+                </select>
+                {!recordForm.paidDate && <p className="mt-1 text-xs text-gray-500">Enter a Paid Date before recording a payment.</p>}
+              </div>
+
+              <>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-gray-700">{recordForm.paymentMethod === 'e_wallet' ? 'E-Wallet' : 'Bank'} Provider</label>
+                    <select name="paymentProvider" value={recordForm.paymentProvider} onChange={(event) => {
+                      handleRecordFormChange(event)
+                      setRecordForm((current) => ({ ...current, paymentProviderOther: '' }))
+                    }} disabled={!recordForm.paidDate || !requiresPaymentDetails(recordForm.paymentMethod)} className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-gray-100">
+                      <option value="">Select provider</option>
+                      {getPaymentProviders(recordForm.paymentMethod).map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                    </select>
+                    {recordForm.paymentProvider === 'Other' && <input name="paymentProviderOther" value={recordForm.paymentProviderOther} onChange={handleRecordFormChange} placeholder="Specify provider" disabled={!recordForm.paidDate} className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100" />}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-gray-700">Reference Number</label>
+                    <input name="referenceNumber" value={recordForm.referenceNumber} onChange={handleRecordFormChange} disabled={!recordForm.paidDate || !requiresPaymentDetails(recordForm.paymentMethod)} required={Boolean(recordForm.paidDate && requiresPaymentDetails(recordForm.paymentMethod))} className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100" />
+                  </div>
+              </>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">Remarks</label>
+                <textarea name="remarks" value={recordForm.remarks} onChange={handleRecordFormChange} rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-gray-200 pt-4">
+                <button type="button" onClick={closeRecordModal} disabled={isRecording} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isRecording} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{isRecording ? 'Recording...' : 'Record Payment'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   )
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { AlertCircle, FileText, Download, Calendar } from 'lucide-react'
+import Pagination from '@/components/Pagination'
 
 interface DemandLetter {
   id: number
@@ -40,17 +41,24 @@ export default function DemandLettersPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>('all')
   const [selectedLetter, setSelectedLetter] = useState<DemandLetter | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
     fetchDemandLetters()
   }, [])
 
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filter])
+
   const fetchDemandLetters = async () => {
     try {
       setIsLoading(true)
+      await apiClient.post('/payments/calculate-overdue')
+
       // Try to fetch all demand letters via a general endpoint
       // This might need a backend route - fallback to individual contract fetches if needed
-      const response = await apiClient.get('/api/demand-letters')
+      const response = await apiClient.get('/demand-letters')
       const lettersData = response.data?.data || response.data || []
       setDemandLetters(Array.isArray(lettersData) ? lettersData : [])
       setError(null)
@@ -71,7 +79,7 @@ export default function DemandLettersPage() {
       for (const contract of contracts) {
         try {
           const letterResponse = await apiClient.get(
-            `/api/contracts/${contract.id}/demand-letters`
+            `/contracts/${contract.id}/demand-letters`
           )
           const letters = letterResponse.data?.data || letterResponse.data || []
           if (Array.isArray(letters)) {
@@ -93,6 +101,7 @@ export default function DemandLettersPage() {
     if (filter === 'all') return true
     return letter.status === filter
   })
+  const paginatedLetters = filteredLetters.slice((currentPage - 1) * 15, currentPage * 15)
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
@@ -157,7 +166,7 @@ export default function DemandLettersPage() {
         <div className="min-h-screen bg-gray-50 p-8">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <div className="loading-spinner mx-auto mb-4" aria-hidden="true"></div>
               <p className="text-gray-600">Loading demand letters...</p>
             </div>
           </div>
@@ -219,7 +228,7 @@ export default function DemandLettersPage() {
                   : `No ${filter} demand letters`}
               </p>
             </div>
-          ) : (
+          ) : (<>
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -248,7 +257,7 @@ export default function DemandLettersPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredLetters.map((letter) => (
+                  {paginatedLetters.map((letter) => (
                     <tr
                       key={letter.id}
                       onClick={() => setSelectedLetter(letter)}
@@ -307,12 +316,23 @@ export default function DemandLettersPage() {
                           <Download className="w-4 h-4" />
                           Download
                         </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            apiClient.printDemandLetter(String(letter.id)).catch(() => alert('Failed to print demand letter'))
+                          }}
+                          className="action-primary ml-2 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium"
+                        >
+                          Print
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+              <Pagination currentPage={currentPage} totalItems={filteredLetters.length} onPageChange={setCurrentPage} />
+            </>
           )}
 
           {/* Modal */}
@@ -447,6 +467,12 @@ export default function DemandLettersPage() {
                   >
                     <Download className="w-4 h-4" />
                     Download PDF
+                  </button>
+                  <button
+                    onClick={() => apiClient.printDemandLetter(String(selectedLetter.id)).catch(() => alert('Failed to print demand letter'))}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  >
+                    Print
                   </button>
                 </div>
               </div>

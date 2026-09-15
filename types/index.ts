@@ -16,6 +16,8 @@ export interface User {
   businessAddress?: string
   business_type?: string
   businessType?: string
+  businessPermitNumber?: string
+  business_permit_number?: string
   tin?: string
   tenant_code?: string
   tenantCode?: string
@@ -229,6 +231,12 @@ export interface Message {
   is_read?: boolean
   createdAt?: string | null
   created_at?: string | null
+  deliveryStatus?: string | null
+  delivery_status?: string | null
+  smsStatus?: string | null
+  sms_status?: string | null
+  smsMessageId?: string | null
+  sms_message_id?: string | null
 }
 
 export interface AuditLog {

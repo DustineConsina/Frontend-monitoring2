@@ -1,17 +1,23 @@
 import Image from 'next/image'
 
-export function PFDALogo() {
+interface PFDALogoProps {
+  className?: string
+  size?: number
+}
+
+export function PFDALogo({ className = 'w-16 h-16', size = 64 }: PFDALogoProps) {
   return (
-    <div className="bg-transparent">
+    <div className="flex shrink-0 items-center justify-center bg-transparent leading-none">
       <Image
         src="/logo.png"
         alt="PFDA Logo"
-        width={64}
-        height={64}
+        width={size}
+        height={size}
         priority
-        className="w-16 h-16 object-contain"
+        className={`block object-contain ${className}`}
         style={{ backgroundColor: 'transparent' }}
       />
     </div>
   )
 }
+

@@ -92,7 +92,7 @@ export default function ContractQRPage() {
       <ProtectedRoute>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+            <div className="loading-spinner" aria-hidden="true" />
             <p className="mt-4 text-gray-600">Loading QR code...</p>
           </div>
         </div>
@@ -105,8 +105,8 @@ export default function ContractQRPage() {
       <ProtectedRoute>
         <div className="text-center py-12">
           <p className="text-gray-500">Contract not found</p>
-          <Link href="/dashboard/contracts" className="text-blue-600 hover:text-blue-700 mt-4 inline-block">
-            ← Back to Contracts
+          <Link href="/dashboard/contracts" className="back-action mt-4">
+            Back to Contracts
           </Link>
         </div>
       </ProtectedRoute>
@@ -121,9 +121,9 @@ export default function ContractQRPage() {
           <div>
             <Link
               href={`/dashboard/contracts/${contract.id}`}
-              className="text-blue-600 hover:text-blue-700 text-sm mb-2 inline-block"
+              className="back-action mb-3"
             >
-              ← Back to Contract
+              Back to Contract
             </Link>
             <h2 className="text-2xl font-bold text-gray-900">Contract QR Code</h2>
             <p className="text-gray-600">{contract.contractNumber}</p>
@@ -131,15 +131,15 @@ export default function ContractQRPage() {
           <div className="flex gap-2">
             <button
               onClick={handleDownload}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+              className="action-success rounded-lg border px-4 py-2"
             >
-              📥 Download
+              Download
             </button>
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              className="action-primary rounded-lg border px-4 py-2"
             >
-              🖨️ Print
+              Print
             </button>
           </div>
         </div>

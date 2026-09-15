@@ -6,6 +6,7 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { User, Contract } from '@/types'
+import { Pencil } from 'lucide-react'
 
 export default function TenantDetailsPage() {
   const params = useParams()
@@ -16,6 +17,8 @@ export default function TenantDetailsPage() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showQrAccessCode, setShowQrAccessCode] = useState(false)
+  const [profilePictureFailed, setProfilePictureFailed] = useState(false)
 
   // Edit modal states
   const [showEditModal, setShowEditModal] = useState(false)
@@ -32,7 +35,7 @@ export default function TenantDetailsPage() {
     businessName: '',
     businessType: '',
     businessAddress: '',
-    tin: '',
+    businessPermitNumber: '',
     profilePicture: null as File | null,
   })
 
@@ -68,22 +71,26 @@ export default function TenantDetailsPage() {
         businessType: tenantData.businessType || tenantData.business_type || '',
         businessAddress: tenantData.businessAddress || tenantData.business_address || '',
         contactPerson: tenantData.contactPerson || tenantData.contact_person || '',
-        tin: tenantData.tin || '',
+        businessPermitNumber: tenantData.businessPermitNumber || tenantData.business_permit_number || tenantData.tin || '',
         tenantCode: tenantData.tenantCode || tenantData.tenant_code || '',
         status: (tenantData.status || tenantData.status || 'active'),
         // FIX: apiClient converts snake_case to camelCase, so profile_picture_url becomes profilePictureUrl
-        profilePicture: tenantData.profilePictureUrl || tenantData.profilePicture || tenantData.profilePicture_url,
-        profile_picture: tenantData.profilePictureUrl || tenantData.profilePicture || tenantData.profile_picture,
+        profilePictureUrl: tenantData.profilePictureUrl || tenantData.profilePicture_url || tenantData.user?.profilePictureUrl || tenantData.user?.profile_picture_url,
+        profilePicturePath: tenantData.profilePicturePath || tenantData.profile_picture_path || tenantData.user?.profilePicturePath || tenantData.user?.profile_picture_path,
+        profilePicture: tenantData.profilePictureUrl || tenantData.profilePicture || tenantData.profilePicture_url || tenantData.user?.profilePictureUrl || tenantData.user?.profile_picture_url,
+        profile_picture: tenantData.profilePictureUrl || tenantData.profilePicture || tenantData.profile_picture || tenantData.user?.profilePictureUrl || tenantData.user?.profile_picture,
         contact_person: tenantData.contact_person || tenantData.contactPerson || '',
         business_name: tenantData.business_name || tenantData.businessName || '',
         business_type: tenantData.business_type || tenantData.businessType || '',
         business_address: tenantData.business_address || tenantData.businessAddress || '',
         tenant_code: tenantData.tenant_code || tenantData.tenantCode || '',
+        qrAccessCode: tenantData.qrAccessCode || tenantData.qr_access_code || '',
         user: tenantData.user,
         createdAt: tenantData.createdAt || tenantData.created_at,
       }
 
       setTenant(mappedTenant)
+      setProfilePictureFailed(false)
 
       let contractsList = []
       if (tenantData.contracts && Array.isArray(tenantData.contracts)) {
@@ -120,7 +127,7 @@ export default function TenantDetailsPage() {
       businessName: tenant.businessName,
       businessType: tenant.businessType,
       businessAddress: tenant.businessAddress,
-      tin: tenant.tin,
+      businessPermitNumber: tenant.businessPermitNumber,
       profilePicture: null,
     })
     setEditError(null)
@@ -168,7 +175,7 @@ export default function TenantDetailsPage() {
         businessName: editFormData.businessName,
         businessType: editFormData.businessType,
         businessAddress: editFormData.businessAddress,
-        tin: editFormData.tin,
+        business_permit_number: editFormData.businessPermitNumber,
       }
 
       // Update tenant (which also updates associated user data)
@@ -195,6 +202,7 @@ export default function TenantDetailsPage() {
       }
 
       setEditSuccess('✅ Tenant updated successfully!')
+      setTimeout(() => setEditSuccess(null), 3000)
 
       // Refresh data after short delay
       setTimeout(async () => {
@@ -209,27 +217,59 @@ export default function TenantDetailsPage() {
   }
 
   const getProfilePictureUrl = () => {
-    // Try to get URL from all possible property names (accounts for camelCase conversion)
-    const url = tenant?.profilePicture || tenant?.profilePictureUrl || tenant?.profile_picture
-    if (!url) {
-      console.log('No profile picture URL found in tenant:', { 
-        profilePicture: tenant?.profilePicture, 
-        profilePictureUrl: tenant?.profilePictureUrl,
-        profile_picture: tenant?.profile_picture 
-      })
-      return null
+    // Use the URL returned by the backend (already fully resolved)
+    const url = tenant?.profilePictureUrl || tenant?.profilePicture || tenant?.profile_picture || tenant?.profile_picture_url
+    if (url) {
+      // Backend already returns full URL, just use it directly with cache busting
+      console.log('Profile picture URL found:', url)
+      let resolvedUrl = String(url)
+      if (/^https?:\/\//i.test(resolvedUrl)) {
+        const parsedUrl = new URL(resolvedUrl)
+        const apiUrl = new URL(process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api')
+        if (/^(localhost|127\.0\.0\.1|::1)$/i.test(parsedUrl.hostname)) {
+          parsedUrl.protocol = apiUrl.protocol
+          parsedUrl.host = apiUrl.host
+        }
+        resolvedUrl = parsedUrl.toString()
+      } else {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+        resolvedUrl = resolvedUrl.startsWith('/api/')
+          ? `${new URL(apiUrl).origin}${resolvedUrl}`
+          : `${apiUrl.replace(/\/$/, '')}${resolvedUrl.startsWith('/') ? resolvedUrl : `/storage/${resolvedUrl.replace(/^\/+/, '')}`}`
+      }
+      const storageMarker = '/api/storage/'
+      const storageIndex = resolvedUrl.indexOf(storageMarker)
+      if (storageIndex !== -1) {
+        resolvedUrl = `/api/profile-picture/${resolvedUrl.slice(storageIndex + storageMarker.length)}`
+      }
+      return `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
     }
-    console.log('Profile picture URL found:', url)
-    // Backend already returns full URL, just use it directly with cache busting
-    return `${url}${url?.includes('?') ? '&' : '?'}t=${Date.now()}`
+
+    // Fallback: construct URL from path if URL is not available
+    const path = tenant?.profilePicturePath || tenant?.profile_picture_path
+    if (path) {
+      const constructedUrl = `/api/profile-picture/${String(path).replace(/^\/+/, '').replace(/^storage\//, '')}`
+      console.log('Constructed profile picture URL from path:', constructedUrl)
+      return constructedUrl
+    }
+
+    console.log('No profile picture URL found in tenant:', { 
+      profilePicture: tenant?.profilePicture, 
+      profilePictureUrl: tenant?.profilePictureUrl,
+      profile_picture: tenant?.profile_picture 
+    })
+    return null
   }
 
   const getStatusBadge = (status: string) => {
     const normalizedStatus = (status || '').toUpperCase()
     const colors = {
       ACTIVE: 'bg-green-100 text-green-800',
+      FOR_RENEWAL: 'bg-indigo-100 text-indigo-800 font-bold',
       EXPIRED: 'bg-yellow-100 text-yellow-800',
       TERMINATED: 'bg-red-100 text-red-800',
+      PENDING: 'bg-blue-100 text-blue-800',
+      RENEWED: 'bg-indigo-100 text-indigo-800',
     }
     return colors[normalizedStatus as keyof typeof colors] || 'bg-gray-100 text-gray-800'
   }
@@ -239,7 +279,7 @@ export default function TenantDetailsPage() {
       <ProtectedRoute>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+            <div className="loading-spinner" aria-hidden="true" />
             <p className="mt-4 text-gray-600">Loading tenant details...</p>
           </div>
         </div>
@@ -256,7 +296,7 @@ export default function TenantDetailsPage() {
           </div>
           <button
             onClick={() => router.push('/dashboard/tenants')}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="back-action"
           >
             Back to Tenants
           </button>
@@ -282,16 +322,17 @@ export default function TenantDetailsPage() {
             <button
               onClick={() => router.push('/dashboard/tenants')}
               title="Back to Tenants"
-              className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+              className="back-action"
             >
-              🔙
+              Back
             </button>
             <button
               onClick={openEditModal}
               title="Edit Tenant"
-              className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              aria-label="Edit Tenant"
+              className="action-edit inline-flex h-10 w-10 items-center justify-center rounded-lg border"
             >
-              ✏️
+              <Pencil className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -304,6 +345,26 @@ export default function TenantDetailsPage() {
             <div className="md:col-span-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
+
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold mb-4">QR Access Password</h3>
+                  <div className="flex max-w-sm items-center gap-3">
+                    <input
+                      type={showQrAccessCode ? 'text' : 'password'}
+                      value={tenant.qrAccessCode || 'Not available'}
+                      readOnly
+                      className="flex-1 rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 font-mono tracking-[0.25em]"
+                      aria-label="Tenant QR access password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowQrAccessCode((visible) => !visible)}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {showQrAccessCode ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </div>
                   <label className="block text-sm font-medium text-gray-500 mb-1">
                     Full Name
                   </label>
@@ -354,19 +415,18 @@ export default function TenantDetailsPage() {
             {/* Profile Picture - Right Side */}
             <div className="flex justify-center md:justify-end">
               <div className="w-40 h-40 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow">
-                {profilePictureUrl ? (
+                {profilePictureUrl && !profilePictureFailed ? (
                   <img
                     key={profilePictureUrl}
                     src={profilePictureUrl}
                     alt={tenant.firstName || 'Tenant'}
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      console.log('Image failed to load:', profilePictureUrl)
-                      e.currentTarget.classList.add('hidden')
+                      console.warn('Image failed to load:', profilePictureUrl)
+                      setProfilePictureFailed(true)
                     }}
                   />
-                ) : null}
-                {!profilePictureUrl && (
+                ) : (
                   <div className="text-4xl font-bold text-white text-center">
                     {tenant.firstName?.[0]}{tenant.lastName?.[0]}
                   </div>
@@ -377,7 +437,7 @@ export default function TenantDetailsPage() {
         </div>
 
         {/* Business Information */}
-        {(tenant.businessName || tenant.businessType || tenant.businessAddress || tenant.tin) && (
+        {(tenant.businessName || tenant.businessType || tenant.businessAddress || tenant.businessPermitNumber) && (
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-4">Business Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -404,9 +464,9 @@ export default function TenantDetailsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-1">
-                  TIN
+                  Business Permit Number
                 </label>
-                <p className="text-gray-900">{tenant.tin || 'N/A'}</p>
+                <p className="text-gray-900">{tenant.businessPermitNumber || 'N/A'}</p>
               </div>
             </div>
           </div>
@@ -419,6 +479,45 @@ export default function TenantDetailsPage() {
             {(tenant.status || 'active').toUpperCase()}
           </span>
         </div>
+
+        {contracts.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Stall Blueprint</h3>
+                <p className="text-sm text-gray-500">Schematic location of this tenant&apos;s contracted stalls</p>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-blue-600" />Active</span>
+                <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-slate-200" />Other</span>
+              </div>
+            </div>
+            <div className="mt-5 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-3 sm:p-5">
+              <div className="mb-3 flex items-center justify-between border-b border-blue-100 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-500">
+                <span>Fish Port Stall Layout</span>
+                <span>{contracts.length} assigned</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {contracts.map((contract: any, index: number) => {
+                  const space = contract.rentalSpace || contract.rental_space || {}
+                  const spaceLabel = space.spaceCode || space.space_code || space.unit_number || space.name || `Stall ${index + 1}`
+                  const isActive = String(contract.status || '').toLowerCase() === 'active'
+
+                  return (
+                    <div
+                      key={`blueprint-${contract.id || index}`}
+                      className={`relative min-h-24 rounded-lg border-2 p-3 ${isActive ? 'border-blue-600 bg-blue-600 text-white shadow-md' : 'border-slate-200 bg-slate-100 text-slate-700'}`}
+                    >
+                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75">Bay {index + 1}</span>
+                      <p className="mt-2 break-words text-sm font-bold">{spaceLabel}</p>
+                      {space.name && space.name !== spaceLabel && <p className="mt-1 truncate text-[10px] opacity-75">{space.name}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Contracts Section */}
         {contracts.length > 0 && (
@@ -440,7 +539,7 @@ export default function TenantDetailsPage() {
                       </p>
                     </div>
                     <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(contract.status || 'pending')}`}>
-                      {(contract.status || 'PENDING').toUpperCase()}
+                      {(contract.status || 'PENDING').toUpperCase().replace('_', ' ')}
                     </span>
                   </div>
                 </Link>
@@ -459,13 +558,6 @@ export default function TenantDetailsPage() {
             {/* Modal Header */}
             <div className="modal-header sticky top-0 flex items-center justify-between">
               <h3 className="text-xl font-bold text-gray-900">Edit Tenant</h3>
-              <button
-                onClick={closeEditModal}
-                disabled={isSubmitting}
-                className="text-gray-500 hover:text-gray-700 text-2xl disabled:opacity-50"
-              >
-                ✕
-              </button>
             </div>
 
             {/* Modal Content */}
@@ -618,12 +710,12 @@ export default function TenantDetailsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      TIN
+                      Business Permit Number
                     </label>
                     <input
                       type="text"
-                      name="tin"
-                      value={editFormData.tin}
+                      name="businessPermitNumber"
+                      value={editFormData.businessPermitNumber}
                       onChange={handleEditFormChange}
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
@@ -657,14 +749,14 @@ export default function TenantDetailsPage() {
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSubmitting}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 font-medium"
+                  className="action-secondary rounded-lg border px-4 py-2 font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                  className="action-primary rounded-lg border px-4 py-2 font-medium disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>

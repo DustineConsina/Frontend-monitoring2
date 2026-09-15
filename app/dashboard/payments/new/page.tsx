@@ -7,6 +7,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { Contract } from '@/types'
 import { showGlobalNotice } from '@/lib/global-notice'
+import { getPaymentProviders, getProviderValue, PAYMENT_METHODS, requiresPaymentDetails } from '@/lib/payment-methods'
 
 function getBillingPeriod(dueDate: string): { start: string; end: string } | null {
   const parts = dueDate.split('-').map(Number)
@@ -31,6 +32,26 @@ function getBillingPeriod(dueDate: string): { start: string; end: string } | nul
   return { start: formatDate(startDate), end: formatDate(endDate) }
 }
 
+function getNextContractDueDate(contract: any, payments: any[]): string {
+  const startDateValue = String(contract?.startDate || contract?.start_date || '').slice(0, 10)
+  const startDate = new Date(`${startDateValue}T00:00:00`)
+  if (Number.isNaN(startDate.getTime())) return new Date().toISOString().slice(0, 10)
+
+  const contractPayments = payments
+    .filter((payment) => String(payment.contractId || payment.contract_id || payment.contract?.id) === String(contract.id))
+    .map((payment) => String(payment.dueDate || payment.due_date || '').slice(0, 10))
+    .filter((dueDate) => dueDate)
+
+  if (contractPayments.length === 0) return startDateValue
+
+  const latestDueDate = contractPayments.sort().at(-1) || startDateValue
+  const latestDate = new Date(`${latestDueDate}T00:00:00`)
+  const nextMonth = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 1)
+  const lastDayOfNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
+  nextMonth.setDate(Math.min(latestDate.getDate(), lastDayOfNextMonth))
+  return nextMonth.toISOString().slice(0, 10)
+}
+
 function displayDate(date: string): string {
   const [year, month, day] = date.split('-').map(Number)
   return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -42,13 +63,18 @@ export default function NewPaymentPage() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [existingPayments, setExistingPayments] = useState<any[]>([])
   const [loadingData, setLoadingData] = useState(true)
+  const [contractSearchTerm, setContractSearchTerm] = useState('')
+  const [isContractDropdownOpen, setIsContractDropdownOpen] = useState(false)
 
   const [formData, setFormData] = useState({
     contractId: '',
     amount: '',
     dueDate: '',
     paidDate: '',
-    paymentMethod: 'CASH',
+    paymentMethod: 'cash',
+    paymentProvider: '',
+    paymentProviderOther: '',
+    referenceNumber: '',
     notes: '',
   })
 
@@ -142,14 +168,31 @@ export default function NewPaymentPage() {
         return
       }
 
+      const paymentProvider = getProviderValue(formData.paymentProvider, formData.paymentProviderOther)
+      if (formData.paidDate && requiresPaymentDetails(formData.paymentMethod) && !paymentProvider) {
+        showGlobalNotice('Payment provider required', 'Select a payment provider before recording this payment.')
+        setIsLoading(false)
+        return
+      }
+      if (formData.paidDate && requiresPaymentDetails(formData.paymentMethod) && !formData.referenceNumber.trim()) {
+        showGlobalNotice('Reference number required', `Reference number is required for ${formData.paymentMethod === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer'} payments.`)
+        setIsLoading(false)
+        return
+      }
+
       // Map form data to backend expected format with proper snake_case field naming
       const paymentData: any = {
         contract_id: parseInt(formData.contractId),
         tenant_id: selectedContract.tenant?.id || selectedContract.tenant_id,
         amount_due: parseFloat(formData.amount),
         due_date: formData.dueDate,
-        payment_method: formData.paymentMethod,
         remarks: formData.notes,
+      }
+
+      if (formData.paidDate) {
+        paymentData.payment_method = formData.paymentMethod
+        paymentData.payment_provider = paymentProvider || null
+        paymentData.reference_number = formData.referenceNumber.trim() || null
       }
 
       if (billingPeriod) {
@@ -164,6 +207,19 @@ export default function NewPaymentPage() {
 
       console.log('Submitting payment:', paymentData)
       await apiClient.createPayment(paymentData)
+      setFormData({
+        contractId: '',
+        amount: '',
+        dueDate: '',
+        paidDate: '',
+        paymentMethod: 'cash',
+        paymentProvider: '',
+        paymentProviderOther: '',
+        referenceNumber: '',
+        notes: '',
+      })
+      setContractSearchTerm('')
+      setIsContractDropdownOpen(false)
       router.push('/dashboard/payments')
     } catch (err: any) {
       showGlobalNotice('Payment could not be recorded', err.message || 'Please check the payment details and try again.')
@@ -173,14 +229,17 @@ export default function NewPaymentPage() {
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    if (e.target.name === 'paymentMethod' && e.target.value === 'cash') {
+      setFormData((current) => ({ ...current, paymentMethod: 'cash', paymentProvider: '', paymentProviderOther: '', referenceNumber: '' }))
+      return
+    }
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     })
   }
 
-  const handleContractChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const contractId = e.target.value
+  const handleContractChange = (contractId: string) => {
     console.log('=== CONTRACT SELECTION ===')
     console.log('Selected contract ID:', contractId)
     
@@ -247,6 +306,7 @@ export default function NewPaymentPage() {
         ...formData,
         contractId,
         amount: amountString,
+        dueDate: getNextContractDueDate(selectedContract, existingPayments),
       })
     } else {
       console.warn('Contract not found in list')
@@ -259,6 +319,24 @@ export default function NewPaymentPage() {
     }
   }
 
+  const searchableContracts = contracts.filter((contract) => {
+    const contractNumber = String(contract.contractNumber || contract.contract_number || '').trim()
+    const tenantName = String(
+      contract.tenant?.user?.name ||
+      contract.tenant?.name ||
+      contract.tenant?.contact_person ||
+      contract.tenant?.contactPerson ||
+      contract.tenant?.business_name ||
+      contract.tenant?.businessName ||
+      ''
+    ).trim()
+    const query = contractSearchTerm.trim().toLowerCase()
+
+    if (!query) return true
+
+    return `${tenantName} ${contractNumber}`.toLowerCase().includes(query)
+  })
+
   return (
     <ProtectedRoute>
       <div className="space-y-6">
@@ -270,9 +348,9 @@ export default function NewPaymentPage() {
           </div>
           <Link
             href="/dashboard/payments"
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="back-action"
           >
-            ← Back
+            Back
           </Link>
         </div>
 
@@ -280,7 +358,7 @@ export default function NewPaymentPage() {
         <div className="form-shell p-6 lg:p-8">
           {loadingData ? (
             <div className="text-center py-12">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+              <div className="loading-spinner" aria-hidden="true" />
               <p className="mt-4 text-gray-600">Loading form data...</p>
             </div>
           ) : (
@@ -290,21 +368,54 @@ export default function NewPaymentPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Contract <span className="text-red-500">*</span>
                 </label>
-                <select
-                  name="contractId"
-                  value={formData.contractId}
-                  onChange={handleContractChange}
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                >
-                  <option value="">Select a contract</option>
-                  {contracts.map((contract) => (
-                    <option key={contract.id} value={contract.id}>
-                      {contract.contractNumber || contract.contract_number} -{' '}
-                      {contract.tenant?.user?.name || contract.tenant?.contact_person || contract.tenant?.business_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractSearchTerm}
+                    onFocus={() => setIsContractDropdownOpen(true)}
+                    onChange={(event) => {
+                      setContractSearchTerm(event.target.value)
+                      setIsContractDropdownOpen(true)
+                    }}
+                    placeholder="Search tenant or contract number"
+                    className="w-full px-4 py-2 pr-9 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    required={!formData.contractId}
+                  />
+                  <button
+                    type="button"
+                    aria-label={isContractDropdownOpen ? 'Close contract list' : 'Open contract list'}
+                    aria-expanded={isContractDropdownOpen}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setIsContractDropdownOpen((isOpen) => !isOpen)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700"
+                  >
+                    <span className={isContractDropdownOpen ? 'inline-block rotate-180' : 'inline-block'}>⌄</span>
+                  </button>
+                  {isContractDropdownOpen && (
+                    <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                      {searchableContracts.length > 0 ? searchableContracts.map((contract) => {
+                        const contractNumber = contract.contractNumber || contract.contract_number || `Contract ${contract.id}`
+                        const tenantName = contract.tenant?.user?.name || contract.tenant?.contact_person || contract.tenant?.business_name || 'Unknown tenant'
+                        return (
+                          <button
+                            key={contract.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              handleContractChange(String(contract.id))
+                              setContractSearchTerm(`${tenantName} — ${contractNumber}`)
+                              setIsContractDropdownOpen(false)
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50"
+                          >
+                            {tenantName} — {contractNumber}
+                          </button>
+                        )
+                      }) : <p className="px-3 py-2 text-sm text-gray-500">No matching contracts</p>}
+                    </div>
+                  )}
+                  <input type="hidden" name="contractId" value={formData.contractId} required />
+                </div>
               </div>
 
               {/* Payment Details */}
@@ -336,13 +447,10 @@ export default function NewPaymentPage() {
                     name="paymentMethod"
                     value={formData.paymentMethod}
                     onChange={handleChange}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    disabled={!formData.paidDate}
+                    className="w-full appearance-none px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
                   >
-                    <option value="CASH">Cash</option>
-                    <option value="CHECK">Check</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                    <option value="GCASH">GCash</option>
+                    {PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -371,10 +479,31 @@ export default function NewPaymentPage() {
                     type="date"
                     name="paidDate"
                     value={formData.paidDate}
-                    onChange={handleChange}
+                    onChange={(event) => {
+                      handleChange(event)
+                      if (!event.target.value) setFormData((current) => ({ ...current, paymentMethod: 'cash', paymentProvider: '', paymentProviderOther: '', referenceNumber: '' }))
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                   />
                 </div>
+
+                <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">{formData.paymentMethod === 'e_wallet' ? 'E-Wallet' : 'Bank'} Provider</label>
+                      <select name="paymentProvider" value={formData.paymentProvider} onChange={(event) => {
+                        handleChange(event)
+                        setFormData((current) => ({ ...current, paymentProviderOther: '' }))
+                      }} disabled={!formData.paidDate || formData.paymentMethod === 'cash'} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100">
+                        <option value="">Select provider</option>
+                        {getPaymentProviders(formData.paymentMethod).map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                      </select>
+                      {formData.paymentProvider === 'Other' && <input name="paymentProviderOther" value={formData.paymentProviderOther} onChange={handleChange} placeholder="Specify provider" disabled={!formData.paidDate} className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100" />}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Reference Number</label>
+                      <input name="referenceNumber" value={formData.referenceNumber} onChange={handleChange} disabled={!formData.paidDate || formData.paymentMethod === 'cash'} required={Boolean(formData.paidDate && formData.paymentMethod !== 'cash')} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100" />
+                    </div>
+                </>
 
                 <div className="md:col-span-2 rounded-md border border-[#e8eaf1] bg-[#fafaff] p-4">
                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9aa1b3]">Billing Period</p>
@@ -419,7 +548,7 @@ export default function NewPaymentPage() {
                   title="Record Payment"
                   className="px-5 py-2.5 flex items-center justify-center bg-[#5148e5] text-white rounded-md hover:bg-[#4038c7] transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? '⏳ Saving...' : 'Record'}
+                  {isLoading ? 'Saving...' : 'Record'}
                 </button>
               </div>
             </form>

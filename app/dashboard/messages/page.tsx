@@ -5,6 +5,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Message } from '@/types'
+import Pagination from '@/components/Pagination'
 
 export default function MessagesPage() {
   const { user } = useAuth()
@@ -18,9 +19,44 @@ export default function MessagesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCompose, setShowCompose] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const paginatedMessages = messages.slice((currentPage - 1) * 15, currentPage * 15)
+
+  const getDeliveryStatus = (message: Message) => {
+    const status = message.deliveryStatus || message.delivery_status || message.smsStatus || message.sms_status
+    const normalizedStatus = String(status || 'pending').toLowerCase()
+
+    if (['delivered', 'sent', 'queued', 'failed', 'pending'].includes(normalizedStatus)) {
+      return normalizedStatus
+    }
+
+    return 'pending'
+  }
+
+  const getDeliveryStatusStyle = (status: string) => {
+    switch (status) {
+      case 'delivered':
+        return 'bg-green-100 text-green-800'
+      case 'sent':
+        return 'bg-blue-100 text-blue-800'
+      case 'failed':
+        return 'bg-red-100 text-red-800'
+      case 'queued':
+        return 'bg-yellow-100 text-yellow-800'
+      default:
+        return 'bg-gray-100 text-gray-700'
+    }
+  }
 
   useEffect(() => {
     fetchMessages()
+
+    const refreshTimer = window.setInterval(() => {
+      void fetchMessages()
+    }, 15000)
+
+    return () => window.clearInterval(refreshTimer)
   }, [])
 
   const fetchMessages = async () => {
@@ -43,8 +79,8 @@ export default function MessagesPage() {
       setNewMessage({ subject: '', content: '', receiverId: '' })
       setShowCompose(false)
       fetchMessages()
-    } catch (err) {
-      console.error('Failed to send message:', err)
+    } catch (err: any) {
+      setError(err.message || 'Message could not be sent')
     }
   }
 
@@ -72,7 +108,7 @@ export default function MessagesPage() {
           <button
             onClick={() => setShowCompose(!showCompose)}
             title="New Message"
-            className="inline-flex items-center justify-center w-10 h-10 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="action-primary inline-flex h-10 w-10 items-center justify-center rounded-lg border"
           >
             +
           </button>
@@ -99,21 +135,16 @@ export default function MessagesPage() {
               <div className="modal-body">
                 <div className="modal-header -mx-6 -mt-6 mb-6 flex items-center justify-between">
                   <h3 className="text-xl font-semibold text-gray-900">New Message</h3>
-                  <button
-                    onClick={() => setShowCompose(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    ✕
-                  </button>
                 </div>
                 <form onSubmit={handleSendMessage} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Recipient (Leave empty for broadcast to all)
+                      Recipient user ID
                     </label>
                     <input
                       type="text"
                       value={newMessage.receiverId}
+                      required
                       onChange={(e) =>
                         setNewMessage({ ...newMessage, receiverId: e.target.value })
                       }
@@ -156,16 +187,16 @@ export default function MessagesPage() {
                       type="button"
                       onClick={() => setShowCompose(false)}
                       title="Cancel"
-                      className="w-10 h-10 flex items-center justify-center border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                      className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm"
                     >
-                      ✕
+                      Cancel
                     </button>
                     <button
                       type="submit"
                       title="Send Message"
-                      className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                      className="action-primary rounded-lg border px-4 py-2 text-sm font-semibold"
                     >
-                      ✓
+                      Send Message
                     </button>
                   </div>
                 </form>
@@ -179,7 +210,7 @@ export default function MessagesPage() {
           {/* Inbox Messages Grid */}
           {isLoading ? (
             <div className="bg-white rounded-lg shadow p-8 text-center">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+              <div className="loading-spinner" aria-hidden="true" />
               <p className="mt-4 text-gray-600">Loading messages...</p>
             </div>
           ) : messages.length === 0 ? (
@@ -188,7 +219,7 @@ export default function MessagesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {messages.map((message) => (
+              {paginatedMessages.map((message) => (
                 <button
                   key={message.id}
                   onClick={() => handleSelectMessage(message)}
@@ -199,6 +230,9 @@ export default function MessagesPage() {
                     <h3 className="text-lg font-bold text-blue-600 flex-1">
                       {message.subject || 'No subject'}
                     </h3>
+                    <span className={`ml-2 rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${getDeliveryStatusStyle(getDeliveryStatus(message))}`}>
+                      {getDeliveryStatus(message)}
+                    </span>
                     {!message.isRead && (
                       <span className="w-3 h-3 bg-blue-600 rounded-full flex-shrink-0 ml-2 mt-1"></span>
                     )}
@@ -228,6 +262,7 @@ export default function MessagesPage() {
               ))}
             </div>
           )}
+          {messages.length > 0 && <Pagination currentPage={currentPage} totalItems={messages.length} onPageChange={setCurrentPage} />}
 
           {/* Message Detail View */}
           {selectedMessage && (
@@ -258,7 +293,7 @@ export default function MessagesPage() {
               </div>
               <button
                 onClick={() => setSelectedMessage(null)}
-                className="mt-6 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                className="back-action mt-6"
               >
                 Back to Inbox
               </button>

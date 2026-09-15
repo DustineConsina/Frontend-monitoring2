@@ -3,16 +3,17 @@
 import { useEffect, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
-import { RentalSpace, RentalSpaceType } from '@/types'
+import { RentalSpace } from '@/types'
+import Pagination from '@/components/Pagination'
 
 export default function RentalSpacesPage() {
   const [spaces, setSpaces] = useState<RentalSpace[]>([])
-  const [spaceTypes, setSpaceTypes] = useState<RentalSpaceType[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
     fetchData()
@@ -28,42 +29,84 @@ export default function RentalSpacesPage() {
   const fetchData = async () => {
     try {
       setIsRefreshing(true)
-      const spacesData = await apiClient.getRentalSpaces()
-      // Handle paginated response from API - extract actual array from nested structure
-      const spacesArray = spacesData.data?.data || spacesData.data || []
-      
-      // DEBUG: Log the API response to see what fields are present
+      const spacesData = await apiClient.getRentalSpaces({ include_all: true })
+      const rawSpaces = (spacesData?.data?.data ?? spacesData?.data ?? []) as Record<string, unknown>[]
+
       console.log('📊 Rental Spaces API Response:')
-      console.log('Total spaces received:', spacesArray.length)
-      if (spacesArray.length > 0) {
-        console.log('First space object keys:', Object.keys(spacesArray[0]))
-        console.log('First space full object:', spacesArray[0])
-        console.log('First space status:', spacesArray[0]?.status)
-        console.log('First space occupancyStatus:', spacesArray[0]?.occupancyStatus)
-        console.log('First space active_contracts_count:', spacesArray[0]?.activeContractsCount)
-        console.log('First space is_occupied:', spacesArray[0]?.isOccupied)
+      console.log('Total spaces received:', rawSpaces.length)
+      if (rawSpaces.length > 0) {
+        console.log('First space object keys:', Object.keys(rawSpaces[0]))
+        console.log('First space full object:', rawSpaces[0])
+        console.log('First space status:', rawSpaces[0]?.status)
+        console.log('First space occupancyStatus:', rawSpaces[0]?.occupancyStatus)
+        console.log('First space active_contracts_count:', rawSpaces[0]?.activeContractsCount)
+        console.log('First space is_occupied:', rawSpaces[0]?.isOccupied)
       }
-      
-      setSpaces(spacesArray)
+
+      setSpaces(rawSpaces.map((space) => space as unknown as RentalSpace))
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load rental spaces')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load rental spaces'
+      setError(message)
       setSpaces([])
-      setSpaceTypes([])
     } finally {
       setIsLoading(false)
       setIsRefreshing(false)
     }
   }
 
-  const filteredSpaces = Array.isArray(spaces) ? spaces.filter((space: any) => {
-    const matchesType = selectedType === 'all' || space.space_type === selectedType
-    // Use occupancyStatus (camelCase - api client transforms snake_case to camelCase), fallback to status
-    const occupancyStatus = space.occupancyStatus || space.status || ''
-    const spaceStatus = String(occupancyStatus || '').toUpperCase()
-    const matchesStatus = statusFilter === 'all' || spaceStatus === statusFilter.toUpperCase()
+  const formatSpaceType = (type: string) => {
+    if (!type) return ''
+    const labels: Record<string, string> = {
+      food_stall: 'Food Stall',
+      market_hall: 'Market Hall',
+      banera_warehouse: 'Banera Warehouse',
+    }
+    return labels[type.toLowerCase()] || type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
+  const distinctTypes = Array.from(
+    new Set(
+      spaces.length > 0
+        ? spaces
+            .map((space: RentalSpace) => space.spaceType || space.space_type)
+            .filter((type): type is string => typeof type === 'string' && type.trim().length > 0)
+        : ['banera_warehouse', 'food_stall', 'market_hall']
+    )
+  )
+
+  const getNormalizedSpaceStatus = (space: RentalSpace) => {
+    const record = space as unknown as Record<string, unknown>
+    const directStatus = String(record?.occupancyStatus || record?.occupancy_status || record?.status || '').trim().toLowerCase()
+
+    if (directStatus === 'available' || directStatus === 'vacant') return 'available'
+    if (directStatus === 'occupied' || directStatus === 'rented' || directStatus === 'reserved' || directStatus === 'renewed') return 'occupied'
+    if (directStatus === 'maintenance' || directStatus === 'unavailable') return 'maintenance'
+
+    const activeContracts = Number(record?.activeContractsCount ?? record?.active_contracts_count ?? 0)
+    if (activeContracts > 0) return 'occupied'
+
+    return 'available'
+  }
+
+  const filteredSpaces = Array.isArray(spaces) ? spaces.filter((space: RentalSpace) => {
+    const rawType = String(space.spaceType || space.space_type || '').toLowerCase().trim()
+    const filterType = String(selectedType || '').toLowerCase().trim()
+
+    const matchesType = filterType === 'all' || 
+      rawType === filterType || 
+      rawType.replace(/_/g, ' ') === filterType.replace(/_/g, ' ') ||
+      rawType.replace(/\s+/g, '_') === filterType.replace(/\s+/g, '_')
+
+    const normalizedStatus = getNormalizedSpaceStatus(space)
+    const matchesStatus = statusFilter === 'all' || normalizedStatus === statusFilter.toLowerCase()
     return matchesType && matchesStatus
   }) : []
+  const paginatedSpaces = filteredSpaces.slice((currentPage - 1) * 15, currentPage * 15)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedType, statusFilter])
 
   const getStatusBadge = (status: string) => {
     const statusKey = String(status || '').toUpperCase()
@@ -87,18 +130,9 @@ export default function RentalSpacesPage() {
 
   const stats = {
     total: spaces.length,
-    available: Array.isArray(spaces) ? spaces.filter((s: any) => {
-      const occupancyStatus = s.occupancyStatus || s.status || ''
-      return String(occupancyStatus || '').toUpperCase() === 'AVAILABLE'
-    }).length : 0,
-    occupied: Array.isArray(spaces) ? spaces.filter((s: any) => {
-      const occupancyStatus = s.occupancyStatus || s.status || ''
-      return String(occupancyStatus || '').toUpperCase() === 'OCCUPIED'
-    }).length : 0,
-    maintenance: Array.isArray(spaces) ? spaces.filter((s: any) => {
-      const occupancyStatus = s.occupancyStatus || s.status || ''
-      return String(occupancyStatus || '').toUpperCase() === 'MAINTENANCE'
-    }).length : 0,
+    available: Array.isArray(spaces) ? spaces.filter((space: RentalSpace) => getNormalizedSpaceStatus(space) === 'available').length : 0,
+    occupied: Array.isArray(spaces) ? spaces.filter((space: RentalSpace) => getNormalizedSpaceStatus(space) === 'occupied').length : 0,
+    maintenance: Array.isArray(spaces) ? spaces.filter((space: RentalSpace) => getNormalizedSpaceStatus(space) === 'maintenance').length : 0,
   }
 
   return (
@@ -114,9 +148,9 @@ export default function RentalSpacesPage() {
             onClick={() => fetchData()}
             disabled={isRefreshing}
             title="Refresh Spaces"
-            className="px-4 py-2 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="action-primary inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 disabled:cursor-not-allowed"
           >
-            {isRefreshing ? '⏳' : '🔄'} Refresh
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
@@ -136,21 +170,21 @@ export default function RentalSpacesPage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-blue-500 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Total Spaces</p>
-            <p className="text-3xl font-bold">{stats.total}</p>
+          <div className="rounded-2xl border border-[#d9e7f1] bg-[linear-gradient(135deg,#1d5d8c_0%,#3d7db7_100%)] p-6 text-white shadow-[0_18px_38px_rgba(29,93,140,0.18)]">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#e7f3ff]">Total Spaces</p>
+            <p className="text-3xl font-black tracking-tight">{stats.total}</p>
           </div>
-          <div className="bg-green-500 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Available</p>
-            <p className="text-3xl font-bold">{stats.available}</p>
+          <div className="rounded-2xl border border-[#d8efe3] bg-[linear-gradient(135deg,#1d7b66_0%,#2ca47d_100%)] p-6 text-white shadow-[0_18px_38px_rgba(29,123,102,0.18)]">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#ebfff4]">Available</p>
+            <p className="text-3xl font-black tracking-tight">{stats.available}</p>
           </div>
-          <div className="bg-purple-500 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Occupied</p>
-            <p className="text-3xl font-bold">{stats.occupied}</p>
+          <div className="rounded-2xl border border-[#e1dff7] bg-[linear-gradient(135deg,#5047a3_0%,#6a5dd6_100%)] p-6 text-white shadow-[0_18px_38px_rgba(80,71,163,0.18)]">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#f0eeff]">Occupied</p>
+            <p className="text-3xl font-black tracking-tight">{stats.occupied}</p>
           </div>
-          <div className="bg-orange-500 rounded-lg shadow-lg p-6 text-white">
-            <p className="text-sm opacity-90 mb-1">Maintenance</p>
-            <p className="text-3xl font-bold">{stats.maintenance}</p>
+          <div className="rounded-2xl border border-[#f2e4cf] bg-[linear-gradient(135deg,#ba6b1f_0%,#d8892a_100%)] p-6 text-white shadow-[0_18px_38px_rgba(186,107,31,0.18)]">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#fff5e9]">Maintenance</p>
+            <p className="text-3xl font-black tracking-tight">{stats.maintenance}</p>
           </div>
         </div>
 
@@ -167,9 +201,9 @@ export default function RentalSpacesPage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               >
                 <option value="all">All Types</option>
-                {Array.from(new Set(spaces.map((s: any) => s.space_type))).map((type: any, index: number) => (
+                {distinctTypes.map((type: string, index: number) => (
                   <option key={`${type}-${index}`} value={type}>
-                    {type}
+                    {formatSpaceType(type)}
                   </option>
                 ))}
               </select>
@@ -197,7 +231,7 @@ export default function RentalSpacesPage() {
           {isLoading ? (
             <div className="col-span-full flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+                <div className="loading-spinner" aria-hidden="true" />
                 <p className="mt-4 text-gray-600">Loading spaces...</p>
               </div>
             </div>
@@ -206,15 +240,15 @@ export default function RentalSpacesPage() {
               <p className="text-gray-500">No rental spaces found</p>
             </div>
           ) : (
-            filteredSpaces.map((space: any) => {
-              const occupancyStatus = space.occupancyStatus || space.status || ''
+            paginatedSpaces.map((space: RentalSpace) => {
+              const occupancyStatus = getNormalizedSpaceStatus(space)
               return (
               <div
                 key={space.id}
                 className={`bg-white rounded-lg shadow hover:shadow-lg transition p-4 border-2 ${
-                  String(occupancyStatus || '').toUpperCase() === 'AVAILABLE'
+                  occupancyStatus === 'available'
                     ? 'border-green-200'
-                    : String(occupancyStatus || '').toUpperCase() === 'OCCUPIED'
+                    : occupancyStatus === 'occupied'
                     ? 'border-blue-200'
                     : 'border-orange-200'
                 }`}
@@ -225,7 +259,7 @@ export default function RentalSpacesPage() {
                 </div>
                 <div className="space-y-2 text-sm mb-4">
                   <div className="text-gray-700 font-medium">
-                    {space.space_type || space.spaceType || 'Space Type N/A'}
+                    {formatSpaceType(space.spaceType || space.space_type || '') || 'Space Type N/A'}
                   </div>
                   <div className="text-gray-600">
                     📏 {space.size_sqm || space.sizeSqm || space.squareMeters || 'N/A'} m²
@@ -254,6 +288,10 @@ export default function RentalSpacesPage() {
             )})
           )}
         </div>
+
+        {!isLoading && filteredSpaces.length > 0 && (
+          <Pagination currentPage={currentPage} totalItems={filteredSpaces.length} onPageChange={setCurrentPage} />
+        )}
 
         {!isLoading && filteredSpaces.length > 0 && (
           <div className="text-sm text-gray-600">

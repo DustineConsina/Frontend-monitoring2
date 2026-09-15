@@ -7,6 +7,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Payment, DemandLetter } from '@/types'
+import { PAYMENT_METHODS, getPaymentProviders, requiresPaymentDetails } from '@/lib/payment-methods'
 
 export default function PaymentDetailPage() {
   const router = useRouter()
@@ -23,11 +24,23 @@ export default function PaymentDetailPage() {
   const [editFormData, setEditFormData] = useState({
     amount_to_pay: '',
     payment_method: '',
+    payment_provider: '',
+    reference_number: '',
+    paid_date: '',
     remarks: '',
   })
 
   // Only cashiers can record and edit payments
   const canEditPayments = user?.role && user.role.toUpperCase() === 'CASHIER'
+
+  const getNewTransactionForm = () => ({
+    amount_to_pay: '',
+    payment_method: '',
+    payment_provider: '',
+    reference_number: '',
+    paid_date: '',
+    remarks: '',
+  })
 
   // Safe date formatter
   const formatDate = (dateInput: any): string => {
@@ -45,12 +58,28 @@ export default function PaymentDetailPage() {
     }
   }
 
+  const parseCurrencyValue = (value: unknown, fallback = 0): number => {
+    if (value === null || value === undefined || value === '') return fallback
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+
+    const text = String(value).trim()
+    if (!text) return fallback
+
+    const normalized = text.startsWith('(') && text.endsWith(')') ? `-${text.slice(1, -1)}` : text
+    const cleaned = normalized.replace(/[^0-9.,-]/g, '').replace(/,(?=\d{3}(?:\D|$))/g, '').replace(/,/g, '')
+    const amount = Number.parseFloat(cleaned)
+
+    return Number.isFinite(amount) ? amount : fallback
+  }
+
   useEffect(() => {
     fetchPayment()
   }, [paymentId])
 
   const fetchPayment = async () => {
     try {
+      await apiClient.post('/payments/calculate-overdue')
+
       // First try to get payment details with contract data from the specific endpoint
       try {
         const response = await apiClient.request<any>(`/payments/${paymentId}`)
@@ -79,11 +108,11 @@ export default function PaymentDetailPage() {
         const monthlyRental = parseFloat(String(contract.monthlyRental || 0))
         
         // Calculate missing values - apiClient converts snake_case to camelCase, so only use camelCase keys
-        const amountDue = parseFloat(String(paymentData.amountDue || monthlyRental || 0)) || monthlyRental
-        const interestAmount = parseFloat(String(paymentData.interestAmount || (amountDue * 0.03) || 0)) || (amountDue * 0.03)
-        const totalAmount = parseFloat(String(paymentData.totalAmount || (amountDue + interestAmount) || 0)) || (amountDue + interestAmount)
-        const amountPaid = parseFloat(String(paymentData.amountPaid || 0)) || 0
-        const balance = parseFloat(String(paymentData.balance || (totalAmount - amountPaid) || 0)) || (totalAmount - amountPaid)
+        const amountDue = parseCurrencyValue(paymentData.amountDue ?? paymentData.amount_due ?? monthlyRental, monthlyRental)
+        const interestAmount = parseCurrencyValue(paymentData.interestAmount ?? paymentData.interest_amount ?? (amountDue * 0.03), amountDue * 0.03)
+        const totalAmount = parseCurrencyValue(paymentData.totalAmount ?? paymentData.total_amount ?? (amountDue + interestAmount), amountDue + interestAmount)
+        const amountPaid = parseCurrencyValue(paymentData.amountPaid ?? paymentData.amount_paid, 0)
+        const balance = Math.max(0, parseCurrencyValue(paymentData.balance ?? (totalAmount - amountPaid), totalAmount - amountPaid))
         
         console.log('Calculated financial values:', { amountDue, interestAmount, totalAmount, amountPaid, balance })
         
@@ -112,11 +141,7 @@ export default function PaymentDetailPage() {
         // Auto-open edit modal if edit query param is present
         if (searchParams.get('edit') === 'true') {
           setTimeout(() => {
-            setEditFormData({
-              amount_to_pay: '',
-              payment_method: mappedPayment.paymentMethod || mappedPayment.payment_method || '',
-              remarks: '',
-            })
+            setEditFormData(getNewTransactionForm())
             setIsEditingModalOpen(true)
           }, 100)
         }
@@ -129,12 +154,12 @@ export default function PaymentDetailPage() {
         const found = Array.isArray(paymentsArray) ? paymentsArray.find((p: Payment) => p.id && parseInt(p.id) === parseInt(paymentId)) : null
         
         if (found) {
-          const monthlyRental = parseFloat(String(found.contract?.monthly_rental || found.contract?.monthlyRent || 0))
-          const amountDue = parseFloat(String(found.amountDue || found.amount_due || monthlyRental || 0))
-          const interestAmount = parseFloat(String(found.interestAmount || found.interest_amount || (amountDue * 0.03) || 0))
-          const totalAmount = parseFloat(String(found.totalAmount || found.total_amount || (amountDue + interestAmount) || 0))
-          const amountPaid = parseFloat(String(found.amountPaid || found.amount_paid || 0))
-          const balance = parseFloat(String(found.balance || (totalAmount - amountPaid) || 0))
+          const monthlyRental = parseCurrencyValue(found.contract?.monthly_rental ?? found.contract?.monthlyRent ?? 0, 0)
+          const amountDue = parseCurrencyValue(found.amountDue ?? found.amount_due ?? monthlyRental, monthlyRental)
+          const interestAmount = parseCurrencyValue(found.interestAmount ?? found.interest_amount ?? (amountDue * 0.03), amountDue * 0.03)
+          const totalAmount = parseCurrencyValue(found.totalAmount ?? found.total_amount ?? (amountDue + interestAmount), amountDue + interestAmount)
+          const amountPaid = parseCurrencyValue(found.amountPaid ?? found.amount_paid, 0)
+          const balance = Math.max(0, parseCurrencyValue(found.balance ?? (totalAmount - amountPaid), totalAmount - amountPaid))
           
           const mappedPayment = {
             ...found,
@@ -154,11 +179,7 @@ export default function PaymentDetailPage() {
           
           if (searchParams.get('edit') === 'true') {
             setTimeout(() => {
-              setEditFormData({
-                amount_to_pay: '',
-                payment_method: mappedPayment.paymentMethod || mappedPayment.payment_method || '',
-                remarks: '',
-              })
+              setEditFormData(getNewTransactionForm())
               setIsEditingModalOpen(true)
             }, 100)
           }
@@ -182,21 +203,33 @@ export default function PaymentDetailPage() {
     }
     
     if (payment) {
-      setEditFormData({
-        amount_to_pay: '',
-        payment_method: payment.payment_method || 'cash',
-        remarks: '',
-      })
+      setEditFormData(getNewTransactionForm())
       setIsEditingModalOpen(true)
     }
   }
 
   const closeEditModal = () => {
     setIsEditingModalOpen(false)
+    resetEditForm()
+  }
+
+  const resetEditForm = () => {
+    setEditFormData({
+      amount_to_pay: '',
+      payment_method: '',
+      payment_provider: '',
+      reference_number: '',
+      paid_date: '',
+      remarks: '',
+    })
   }
 
   const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
+    if (name === 'payment_method' && value === 'cash') {
+      setEditFormData((prev) => ({ ...prev, payment_method: 'cash', payment_provider: '', reference_number: '' }))
+      return
+    }
     setEditFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -211,6 +244,26 @@ export default function PaymentDetailPage() {
       return
     }
 
+    if (!editFormData.paid_date) {
+      alert('Paid date is required to record a payment.')
+      return
+    }
+
+    if (!editFormData.payment_method) {
+      alert('Please select a payment method.')
+      return
+    }
+
+    if (editFormData.payment_method !== 'cash' && !editFormData.payment_provider) {
+      alert('Payment provider is required for non-cash payments.')
+      return
+    }
+
+    if (editFormData.payment_method !== 'cash' && !editFormData.reference_number.trim()) {
+      alert(`Reference number is required for ${editFormData.payment_method === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer'} payments.`)
+      return
+    }
+
     const amountToPay = parseFloat(editFormData.amount_to_pay)
     const currentBalance = parseFloat(String(payment.balance || 0))
 
@@ -222,73 +275,19 @@ export default function PaymentDetailPage() {
 
     setIsUpdating(true)
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-      if (!token) {
-        throw new Error('Authentication token not found. Please login again.')
-      }
-
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
-      const fullUrl = `${apiUrl}/payments/${payment.id}`
-      
-      console.log('API URL:', fullUrl)
-      console.log('Token:', token ? 'Present' : 'Missing')
-
-      const requestBody = {
-        amount_to_pay: editFormData.amount_to_pay ? parseFloat(editFormData.amount_to_pay) : 0,
-        payment_method: editFormData.payment_method || 'cash',
+      const result = await apiClient.post(`/payments/${payment.id}/record`, {
+        amount: amountToPay,
+        paid_date: editFormData.paid_date,
+        payment_method: editFormData.payment_method,
+        payment_provider: editFormData.payment_provider || null,
+        reference_number: editFormData.reference_number.trim() || null,
         remarks: editFormData.remarks,
-      }
-
-      console.log('Request body:', requestBody)
-
-      const response = await fetch(fullUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
       })
-
-      console.log('Response status:', response.status, response.statusText)
-      console.log('Response headers:', {
-        'content-type': response.headers.get('content-type'),
-      })
-
-      const responseText = await response.text()
-      console.log('Response text length:', responseText.length)
-      console.log('Response text preview:', responseText.substring(0, 500))
-
-      if (!response.ok) {
-        try {
-          const errorData = JSON.parse(responseText)
-          console.log('Error data:', errorData)
-          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`)
-        } catch (parseError) {
-          console.log('Could not parse error as JSON')
-          throw new Error(`HTTP ${response.status}: ${response.statusText}\n${responseText.substring(0, 500)}`)
-        }
-      }
-
-      try {
-        const result = JSON.parse(responseText)
-        console.log('Success response:', result)
-        if (result.data) {
-          console.log('Updated balance:', result.data.balance)
-          setPayment(result.data)
-        }
-        closeEditModal()
-        // Show success message
-        const paidAmount = parseFloat(editFormData.amount_to_pay)
-        setSuccessMessage(`✅ Payment of ₱${paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded successfully!`)
-        // Clear message after 4 seconds
-        setTimeout(() => {
-          setSuccessMessage(null)
-        }, 4000)
-      } catch (parseError) {
-        console.error('Failed to parse success response:', parseError)
-        setPayment(payment) // Keep current state
-      }
+      if (result.data) setPayment(result.data)
+      closeEditModal()
+      resetEditForm()
+      setSuccessMessage(`Payment of ₱${amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} recorded successfully!`)
+      setTimeout(() => setSuccessMessage(null), 3000)
     } catch (err: any) {
       console.error('Full error object:', err)
       const errorMsg = err.message || 'Failed to record payment'
@@ -327,17 +326,17 @@ export default function PaymentDetailPage() {
                 onClick={openEditModal}
                 disabled={!!(payment && (payment.balance === 0 || parseFloat(String(payment.balance || 0)) === 0))}
                 title={payment && (payment.balance === 0 || parseFloat(String(payment.balance || 0)) === 0) ? "This payment is already paid" : "Record a payment"}
-                className={`w-10 h-10 flex items-center justify-center rounded-lg transition ${payment && (payment.balance === 0 || parseFloat(String(payment.balance || 0)) === 0) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                className={`inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${payment && (payment.balance === 0 || parseFloat(String(payment.balance || 0)) === 0) ? 'cursor-not-allowed border-gray-300 bg-gray-200 text-gray-500' : 'action-edit'}`}
               >
-                ✏️
+                Edit Payment
               </button>
             )}
             <Link
               href="/dashboard/payments"
               title="Back to Payments"
-              className="w-10 h-10 flex items-center justify-center bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
+              className="back-action"
             >
-              🔙
+              Back to Payments
             </Link>
           </div>
         </div>
@@ -346,7 +345,7 @@ export default function PaymentDetailPage() {
         {isLoading && (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent" />
+              <div className="loading-spinner" aria-hidden="true" />
               <p className="mt-4 text-gray-600">Loading payment details...</p>
             </div>
           </div>
@@ -440,6 +439,42 @@ export default function PaymentDetailPage() {
               </div>
             </div>
 
+            <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Transactions</h3>
+              {(payment as any).transactions?.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th className="px-3 py-2">Transaction ID</th>
+                        <th className="px-3 py-2">Amount</th>
+                        <th className="px-3 py-2">Paid Date</th>
+                        <th className="px-3 py-2">Method</th>
+                        <th className="px-3 py-2">Provider</th>
+                        <th className="px-3 py-2">Reference</th>
+                        <th className="px-3 py-2">Recorded By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {(payment as any).transactions.map((transaction: any) => (
+                        <tr key={transaction.id}>
+                          <td className="px-3 py-3 font-mono">#{transaction.id}</td>
+                          <td className="px-3 py-3 font-semibold">₱{Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-3">{formatDate(transaction.paidDate || transaction.paid_date)}</td>
+                          <td className="px-3 py-3">{String(transaction.paymentMethod || transaction.payment_method || '').replace('_', ' ').toUpperCase()}</td>
+                          <td className="px-3 py-3">{transaction.paymentProvider || transaction.payment_provider || 'N/A'}</td>
+                          <td className="px-3 py-3">{transaction.referenceNumber || transaction.reference_number || 'N/A'}</td>
+                          <td className="px-3 py-3">{transaction.recorder?.name || 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No payment transactions recorded yet.</p>
+              )}
+            </div>
+
             {/* Demand Letters Section */}
             {payment.demandLetters && payment.demandLetters.length > 0 && (
               <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
@@ -467,7 +502,7 @@ export default function PaymentDetailPage() {
                         onClick={() => apiClient.downloadDemandLetter(letter.id)}
                         className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition font-medium whitespace-nowrap ml-4"
                       >
-                        📥 Download
+                        Download
                       </button>
                     </div>
                   ))}
@@ -523,14 +558,14 @@ export default function PaymentDetailPage() {
         {/* Edit Payment Modal */}
         {isEditingModalOpen && canEditPayments && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/40 p-4 backdrop-blur-sm">
-            <div className="modal-shell p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
-              <h3 className="modal-header -mx-8 -mt-8 mb-6">Record Payment</h3>
+            <div className="modal-shell w-full max-w-sm overflow-y-auto p-6 max-h-[85vh]">
+              <h3 className="modal-header -mx-6 -mt-6 mb-4">Record Payment</h3>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Show Current Balance */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-gray-600 mb-1">Current Balance</p>
-                  <p className="text-2xl font-bold text-blue-600">
+                  <p className="text-xl font-bold text-blue-600">
                     ₱{payment ? parseFloat(String(payment.balance || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
                   </p>
                 </div>
@@ -547,11 +582,22 @@ export default function PaymentDetailPage() {
                     value={editFormData.amount_to_pay}
                     onChange={handleEditFormChange}
                     placeholder="Enter payment amount"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    className="no-number-spinner w-full appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Maximum: ₱{payment ? parseFloat(String(payment.balance || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'} (remaining balance with interest)
                   </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Paid Date</label>
+                  <input
+                    type="date"
+                    name="paid_date"
+                    value={editFormData.paid_date}
+                    onChange={handleEditFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  />
                 </div>
 
                 <div>
@@ -560,13 +606,54 @@ export default function PaymentDetailPage() {
                     name="payment_method"
                     value={editFormData.payment_method}
                     onChange={handleEditFormChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    disabled={!editFormData.paid_date}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
                   >
-                    <option value="cash">Cash</option>
-                    <option value="check">Check</option>
-                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="">Select payment method</option>
+                    {PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                   </select>
+                  {!editFormData.paid_date && <p className="mt-1 text-xs text-gray-500">Enter a Paid Date to enable payment methods.</p>}
                 </div>
+
+                {requiresPaymentDetails(editFormData.payment_method) && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{editFormData.payment_method === 'e_wallet' ? 'E-Wallet' : 'Bank'} Provider</label>
+                      <select
+                        name="payment_provider"
+                        value={editFormData.payment_provider}
+                        onChange={handleEditFormChange}
+                        disabled={!editFormData.paid_date}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                      >
+                        <option value="">Select provider</option>
+                        {getPaymentProviders(editFormData.payment_method).map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+                      </select>
+                      {editFormData.payment_provider === 'Other' && <input
+                        type="text"
+                        name="payment_provider"
+                        value={editFormData.payment_provider}
+                        onChange={handleEditFormChange}
+                        placeholder="Specify provider"
+                        disabled={!editFormData.paid_date}
+                        className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                      />}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Reference Number</label>
+                      <input
+                        type="text"
+                        name="reference_number"
+                        value={editFormData.reference_number}
+                        onChange={handleEditFormChange}
+                        required={Boolean(editFormData.paid_date)}
+                        placeholder="Required"
+                        disabled={!editFormData.paid_date}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Remarks/Notes</label>
@@ -585,17 +672,17 @@ export default function PaymentDetailPage() {
                     onClick={handleUpdatePayment}
                     disabled={isUpdating || !editFormData.amount_to_pay}
                     title="Record Payment"
-                    className="flex-1 bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center"
+                    className="action-success flex-1 rounded-lg border px-4 py-2 font-medium disabled:cursor-not-allowed flex items-center justify-center"
                   >
-                    {isUpdating ? '⏳' : '💾'}
+                    {isUpdating ? 'Saving...' : 'Save'}
                   </button>
                   <button
                     onClick={closeEditModal}
                     disabled={isUpdating}
                     title="Cancel"
-                    className="flex-1 bg-gray-300 text-gray-800 rounded-lg px-4 py-2 hover:bg-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center"
+                    className="action-secondary flex-1 rounded-lg border px-4 py-2 font-medium disabled:cursor-not-allowed flex items-center justify-center"
                   >
-                    ✕
+                    Cancel
                   </button>
                 </div>
               </div>

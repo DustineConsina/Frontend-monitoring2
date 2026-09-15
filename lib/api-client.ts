@@ -1,5 +1,29 @@
 // API Client for communicating with backend
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://10.0.7.42:8000/api'
+
+const isPrivateNetworkHost = (hostname: string) => {
+  return /^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(hostname)
+}
+
+const resolveApiBaseUrl = () => {
+  const configuredUrl = DEFAULT_API_URL
+
+  if (typeof window === 'undefined') {
+    return configuredUrl.replace(/\/$/, '')
+  }
+
+  try {
+    const url = new URL(configuredUrl)
+    const browserHost = window.location.hostname.toLowerCase()
+    const configuredHost = url.hostname.toLowerCase()
+    if (isPrivateNetworkHost(configuredHost) && isPrivateNetworkHost(browserHost)) {
+      url.hostname = window.location.hostname
+    }
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return configuredUrl.replace(/\/$/, '')
+  }
+}
 
 interface ApiError {
   message: string
@@ -29,15 +53,15 @@ function toSnakeCase(str: string): string {
 }
 
 // Transform object keys from camelCase to snake_case
-function transformKeysToSnakeCase(obj: any): any {
+function transformKeysToSnakeCase(obj: unknown): unknown {
   if (obj === null || typeof obj !== 'object') return obj
   if (Array.isArray(obj)) return obj.map((item) => transformKeysToSnakeCase(item))
 
-  const transformed: any = {}
-  for (const key in obj) {
+  const transformed: Record<string, unknown> = {}
+  for (const key in obj as Record<string, unknown>) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const snakeKey = toSnakeCase(key)
-      const value = obj[key]
+      const value = (obj as Record<string, unknown>)[key]
       transformed[snakeKey] = transformKeysToSnakeCase(value)
     }
   }
@@ -50,15 +74,15 @@ function toCamelCase(str: string): string {
 }
 
 // Transform object keys from snake_case to camelCase
-function transformKeysToCAmelCase(obj: any): any {
+function transformKeysToCAmelCase(obj: unknown): unknown {
   if (obj === null || typeof obj !== 'object') return obj
   if (Array.isArray(obj)) return obj.map((item) => transformKeysToCAmelCase(item))
 
-  const transformed: any = {}
-  for (const key in obj) {
+  const transformed: Record<string, unknown> = {}
+  for (const key in obj as Record<string, unknown>) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const camelKey = toCamelCase(key)
-      const value = obj[key]
+      const value = (obj as Record<string, unknown>)[key]
       transformed[camelKey] = transformKeysToCAmelCase(value)
     }
   }
@@ -69,8 +93,8 @@ class ApiClient {
   private baseUrl: string
   private token: string | null = null
 
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl
+  constructor(_baseUrl: string) {
+    this.baseUrl = resolveApiBaseUrl()
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('auth_token')
     }
@@ -156,10 +180,10 @@ class ApiClient {
           `Error ${response.status}: ${response.statusText}`
         const message = sanitizeErrorMessage(String(rawMessage))
 
-        const err = new Error(message)
-        ;(err as any).errors = errorData?.errors || null
-        ;(err as any).debug = errorData?.debug || null
-        ;(err as any).status = response.status
+        const err = new Error(message) as Error & { errors?: unknown; debug?: unknown; status?: number }
+        err.errors = errorData?.errors || null
+        err.debug = errorData?.debug || null
+        err.status = response.status
         if (message !== rawMessage) {
           showGlobalConnectionNotice('Request could not be completed', message)
         }
@@ -185,8 +209,8 @@ class ApiClient {
     } catch (error: any) {
       // Network errors (backend not running)
       if (error.name === 'TypeError' && error.message?.includes('fetch')) {
-        const err = new Error('Unable to connect to the service. Please try again in a moment.')
-        ;(err as any).status = 0
+        const err = new Error('Unable to connect to the service. Please try again in a moment.') as Error & { status?: number }
+        err.status = 0
         showGlobalConnectionNotice('Connection problem', err.message)
         throw err
       }
@@ -273,8 +297,11 @@ class ApiClient {
   }
 
   // Payments
-  async getPayments(contractId?: string) {
-    const query = contractId ? `?contractId=${contractId}` : ''
+  async getPayments(contractId?: string, params: Record<string, string | number> = {}) {
+    const queryParams = new URLSearchParams()
+    if (contractId) queryParams.set('contractId', contractId)
+    Object.entries(params).forEach(([key, value]) => queryParams.set(key, String(value)))
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : ''
     return this.request<any>(`/payments${query}`)
   }
 
@@ -289,6 +316,12 @@ class ApiClient {
     return this.request<any>(`/payments/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    })
+  }
+
+  async deletePayment(id: string) {
+    return this.request<any>(`/payments/${id}`, {
+      method: 'DELETE',
     })
   }
 
@@ -311,20 +344,56 @@ class ApiClient {
   // Messages/Chat
   async getMessages(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
-    return this.request<any>(`/messages${query}`)
+    const response = await this.request<any>(`/chat/conversations${query}`)
+    const conversations = Array.isArray(response) ? response : response?.data || []
+
+    return conversations
+      .map((conversation: any) => {
+        const lastMessage = conversation.lastMessage || conversation.last_message
+        if (!lastMessage) return null
+
+        return {
+          ...lastMessage,
+          subject: lastMessage.subject || 'Message',
+          content: lastMessage.content || lastMessage.message || '',
+          isRead: lastMessage.isRead ?? lastMessage.is_read ?? false,
+          createdAt: lastMessage.createdAt || lastMessage.created_at,
+          sender: lastMessage.sender,
+          receiver: lastMessage.receiver,
+        }
+      })
+      .filter(Boolean)
   }
 
   async sendMessage(data: any) {
-    return this.request<any>('/messages', {
+    return this.request<any>('/chat/send', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        receiver_id: data.receiverId || data.receiver_id,
+        message: data.content || data.message,
+      }),
     })
   }
 
   async markMessageAsRead(id: string) {
-    return this.request<any>(`/messages/${id}/read`, {
-      method: 'PUT',
+    return this.request<any>(`/chat/${id}/read`, {
+      method: 'PATCH',
     })
+  }
+
+  async sendSms(phoneNumber: string, message: string) {
+    const response = await fetch('/api/sms/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, message }),
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || 'Unable to queue SMS')
+    }
+
+    return data as { success: boolean; data: { provider: string; messageId: string; status: string } }
   }
 
   // Reports
@@ -416,10 +485,63 @@ class ApiClient {
     return this.request<any>('/notifications')
   }
 
+  async getUnreadNotifications() {
+    return this.request<any>('/notifications/unread')
+  }
+
   async markNotificationAsRead(id: string) {
     return this.request<any>(`/notifications/${id}/read`, {
       method: 'PUT',
     })
+  }
+
+  async markAllNotificationsAsRead() {
+    const endpointCandidates = [
+      '/notifications/read-all',
+      '/notifications/mark-all-read',
+      '/notifications/mark-all-as-read',
+      '/notifications/read',
+    ]
+
+    let lastError: any = null
+
+    for (const endpoint of endpointCandidates) {
+      try {
+        return await this.request<any>(endpoint, { method: 'PUT' })
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    for (const endpoint of ['/notifications/read-all', '/notifications/mark-all-read', '/notifications/mark-all-as-read', '/notifications/read']) {
+      try {
+        return await this.request<any>(endpoint, { method: 'POST' })
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    throw lastError || new Error('Unable to mark all notifications as read.')
+  }
+
+  buildNotificationStreamUrl() {
+    const baseUrl = this.baseUrl.replace(/\/$/, '')
+    const streamCandidates = [
+      `${baseUrl}/notifications/stream`,
+      `${baseUrl}/notifications/live`,
+      `${baseUrl}/notifications/events`,
+    ]
+
+    const token = this.token
+    if (!token) {
+      return streamCandidates[0]
+    }
+
+    return streamCandidates.map((candidate) => {
+      const url = new URL(candidate)
+      url.searchParams.set('token', token)
+      return url.toString()
+    })[0]
   }
 
   // Tenants/Users
@@ -477,26 +599,56 @@ class ApiClient {
     document.body.removeChild(a)
   }
 
+  async printDemandLetter(demandLetterId: string) {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) throw new Error('Allow pop-ups to print the demand letter.')
+
+    try {
+      const response = await fetch(`${this.baseUrl}/demand-letters/${demandLetterId}/download`, {
+        headers: { 'Authorization': `Bearer ${this.token}` },
+      })
+      if (!response.ok) throw new Error('Failed to load demand letter')
+
+      const blobUrl = window.URL.createObjectURL(await response.blob())
+      printWindow.location.href = blobUrl
+      printWindow.onload = () => printWindow.print()
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000)
+    } catch (error) {
+      printWindow.close()
+      throw error
+    }
+  }
+
   // Export reports
   async exportReportPDF(reportType: string, params?: any) {
     const cleanParams = params ? Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])) : {}
     const queryParams = new URLSearchParams(cleanParams as Record<string, string>)
     queryParams.append('format', 'pdf')
     const query = `?${queryParams.toString()}`
-    
+
     const response = await fetch(`${this.baseUrl}/reports/${reportType}${query}`, {
       headers: {
         'Authorization': `Bearer ${this.token}`,
       },
     })
-    
-    if (!response.ok) throw new Error('Failed to export PDF')
-    
+
+    if (!response.ok) {
+      let message = 'Failed to export PDF report.'
+      try {
+        const errorData = await response.clone().json()
+        message = errorData?.message || errorData?.error || message
+      } catch {
+        message = `HTTP ${response.status}: ${response.statusText || 'Unable to export PDF.'}`
+      }
+      throw new Error(message)
+    }
+
     const blob = await response.blob()
+    const fileName = `${reportType.replace(/_/g, '-')}-report-${new Date().toISOString().slice(0, 10)}.pdf`
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${reportType}-report-${new Date().toISOString().split('T')[0]}.pdf`
+    a.download = fileName
     document.body.appendChild(a)
     a.click()
     window.URL.revokeObjectURL(url)
@@ -508,32 +660,30 @@ class ApiClient {
     const queryParams = new URLSearchParams(cleanParams as Record<string, string>)
     queryParams.append('format', 'csv')
     const query = `?${queryParams.toString()}`
-    
+
     const response = await fetch(`${this.baseUrl}/reports/${reportType}${query}`, {
       headers: {
         'Authorization': `Bearer ${this.token}`,
       },
     })
-    
+
     if (!response.ok) {
-      // Try to get error message from response
+      let message = 'Failed to export CSV report.'
       try {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
-      } catch (e: any) {
-        // If not JSON, use status text
-        if (e instanceof Error && e.message) {
-          throw e
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        const errorData = await response.clone().json()
+        message = errorData?.message || errorData?.error || message
+      } catch {
+        message = `HTTP ${response.status}: ${response.statusText || 'Unable to export CSV.'}`
       }
+      throw new Error(message)
     }
-    
+
     const blob = await response.blob()
+    const fileName = `${reportType.replace(/_/g, '-')}-report-${new Date().toISOString().slice(0, 10)}.csv`
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${reportType}-report-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = fileName
     document.body.appendChild(a)
     a.click()
     window.URL.revokeObjectURL(url)
@@ -541,5 +691,5 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient(API_URL)
+export const apiClient = new ApiClient(DEFAULT_API_URL)
 export default apiClient
