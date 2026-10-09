@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Payment, DemandLetter } from '@/types'
 import { PAYMENT_METHODS, getPaymentProviders, requiresPaymentDetails } from '@/lib/payment-methods'
+import { statusColorClass } from '@/lib/status-colors'
 
 export default function PaymentDetailPage() {
   const router = useRouter()
@@ -86,7 +87,7 @@ export default function PaymentDetailPage() {
         console.log('Full API response:', response)
         
         // Handle different response structures
-        let paymentData = response.data?.data || response.data
+        const paymentData = response.data?.data || response.data
         
         // If we still don't have payment data, try to extract it
         if (!paymentData || typeof paymentData !== 'object' || !paymentData.id) {
@@ -298,17 +299,7 @@ export default function PaymentDetailPage() {
   }
 
   const getStatusBadge = (status: string) => {
-    const colors = {
-      paid: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      overdue: 'bg-red-100 text-red-800',
-      partial: 'bg-orange-100 text-orange-800',
-      PAID: 'bg-green-100 text-green-800',
-      PENDING: 'bg-yellow-100 text-yellow-800',
-      OVERDUE: 'bg-red-100 text-red-800',
-      PARTIAL: 'bg-orange-100 text-orange-800',
-    }
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return statusColorClass(status)
   }
 
   return (
@@ -521,8 +512,30 @@ export default function PaymentDetailPage() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Contract Status</label>
+                  <span className={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full ${getStatusBadge(payment.contract?.status || 'pending')}`}>
+                    {(payment.contract?.status || 'N/A').replace('_', ' ').toUpperCase()}
+                  </span>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Tenant</label>
                   <p className="text-gray-900">{payment.tenant?.user?.name || payment.tenant?.contactPerson || payment.tenant?.contact_person || payment.tenant?.businessName || payment.tenant?.business_name || 'N/A'}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Rental Space</label>
+                  <p className="text-gray-900">
+                    {(() => {
+                      const rentalSpace = payment.contract?.rentalSpace || payment.contract?.rental_space
+                      return rentalSpace?.spaceNumber
+                        || rentalSpace?.space_number
+                        || rentalSpace?.spaceCode
+                        || rentalSpace?.space_code
+                        || rentalSpace?.name
+                        || 'N/A'
+                    })()}
+                  </p>
                 </div>
 
                 <div>

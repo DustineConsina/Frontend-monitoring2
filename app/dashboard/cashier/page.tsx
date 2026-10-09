@@ -44,6 +44,7 @@ import apiClient from '@/lib/api-client'
 import { showGlobalNotice } from '@/lib/global-notice'
 import { getPaymentProviders, getProviderValue, PAYMENT_METHODS, requiresPaymentDetails } from '@/lib/payment-methods'
 import Pagination from '@/components/Pagination'
+import { statusColorClass } from '@/lib/status-colors'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 interface CollectiblePayment {
@@ -381,13 +382,7 @@ export default function CashierDashboard() {
   }
 
   const getStatusColor = (status: string) => {
-    const colors = {
-      paid: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      overdue: 'bg-red-100 text-red-800',
-      partial: 'bg-orange-100 text-orange-800',
-    }
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return statusColorClass(status)
   }
 
   const getUrgencyColor = (status: string, daysOverdue: number) => {
@@ -834,7 +829,7 @@ export default function CashierDashboard() {
             </div>
           ) : (
             <div className="divide-y divide-[#eef0f5]">
-              {collectibles.slice((currentPage - 1) * 15, currentPage * 15).map((payment) => (
+              {collectibles.slice((currentPage - 1) * 10, currentPage * 10).map((payment) => (
                 <div
                   key={payment.id}
                   onClick={() => {

@@ -1,37 +1,33 @@
 import { NextRequest } from 'next/server'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-const API_URL = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8000/api'
+const sampleFilePath = join(process.cwd(), 'public', 'Sample of Contract of Lease.docx')
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params
-  const authorization = request.headers.get('authorization')
-  const headers: HeadersInit = { Accept: 'application/pdf' }
-
-  if (authorization) {
-    headers.Authorization = authorization
-  }
+  await params
 
   try {
-    const response = await fetch(`${API_URL.replace(/\/$/, '')}/contracts/${encodeURIComponent(id)}/lease`, {
-      headers,
-      cache: 'no-store',
-    })
+    const sampleBytes = readFileSync(sampleFilePath)
 
-    return new Response(response.body, {
-      status: response.status,
+    return new Response(new Uint8Array(sampleBytes), {
+      status: 200,
       headers: {
-        'Content-Type': response.headers.get('content-type') || 'application/pdf',
-        'Content-Disposition': response.headers.get('content-disposition') || 'inline',
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': 'attachment; filename="Sample of Contract of Lease.docx"',
         'Cache-Control': 'no-store',
       },
     })
-  } catch {
+  } catch (error) {
+    console.error('Lease file fetch failed:', error)
     return Response.json(
-      { message: 'The lease service is unavailable on the computer.' },
-      { status: 502 },
+      {
+        message: 'The lease template is unavailable.',
+      },
+      { status: 500 },
     )
   }
 }

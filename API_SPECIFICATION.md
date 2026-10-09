@@ -206,7 +206,7 @@ Get all rental spaces.
 
 **Query Parameters:**
 - `typeId`: Filter by space type
-- `status`: Filter by status (AVAILABLE, OCCUPIED, MAINTENANCE)
+- `status`: Filter by status (AVAILABLE, OCCUPIED, MAINTENANCE, INACTIVE)
 
 **Response:**
 ```json

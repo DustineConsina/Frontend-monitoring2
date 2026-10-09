@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       setUser(mappedUser)
-      router.push('/dashboard')
+      router.push(mappedUser.role?.toUpperCase() === 'TENANT' ? '/tenant/dashboard' : '/dashboard')
     } catch (error: any) {
       console.error('Login failed:', error)
       // Get the actual error message

@@ -7,7 +7,10 @@ export interface User {
   name?: string
   email?: string
   firstName?: string
+  middleName?: string
+  middle_name?: string
   lastName?: string
+  suffix?: string
   contact_person?: string
   contactPerson?: string
   business_name?: string
@@ -34,7 +37,7 @@ export interface User {
   updated_at?: string
 }
 
-export type SpaceStatus = 'AVAILABLE' | 'OCCUPIED' | 'MAINTENANCE'
+export type SpaceStatus = 'AVAILABLE' | 'OCCUPIED' | 'MAINTENANCE' | 'INACTIVE'
 
 export interface RentalSpaceType {
   id: string

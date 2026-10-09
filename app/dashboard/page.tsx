@@ -6,9 +6,26 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
-import { PFDALogo } from '@/components/PFDALogo'
-import { DashboardStats } from '@/types'
+import { Contract, DashboardStats, Payment } from '@/types'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { ArrowUpRight, Banknote, Building2, CalendarClock, FileText, RefreshCw, Users } from 'lucide-react'
+
+function extractDashboardList<T>(response: unknown): T[] {
+  const payload = response && typeof response === 'object' ? response as Record<string, unknown> : null
+  const nestedData = payload?.data && typeof payload.data === 'object' ? payload.data as Record<string, unknown> : null
+  const candidates: unknown[] = [nestedData?.data, payload?.data, response]
+  return (candidates.find(Array.isArray) || []) as T[]
+}
+
+function getDaysUntil(value: unknown): number | null {
+  if (typeof value !== 'string' && typeof value !== 'number' && !(value instanceof Date)) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const today = new Date()
+  const targetDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+  return Math.round((targetDay - currentDay) / 86400000)
+}
 
 function formatDashboardDate(value?: string | number | Date | null): string {
   if (value === null || value === undefined || value === '') return 'Date unavailable'
@@ -17,7 +34,7 @@ function formatDashboardDate(value?: string | number | Date | null): string {
   return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString()
 }
 
-function getContractSpaceLabel(contract: { rentalSpace?: any; rental_space?: any } | null | undefined): string {
+function getContractSpaceLabel(contract: Contract | null | undefined): string {
   if (!contract) return 'Space not assigned'
 
   const space = contract.rentalSpace || contract.rental_space
@@ -49,6 +66,8 @@ export default function DashboardPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -77,10 +96,17 @@ export default function DashboardPage() {
       if (!isMounted || !localStorage.getItem('auth_token')) return
 
       setIsRefreshing(true)
-      const data = await apiClient.getDashboardStats()
+      const [statsResult, contractsResult, paymentsResult] = await Promise.allSettled([
+        apiClient.getDashboardStats(),
+        apiClient.getContracts({ per_page: 1000 }),
+        apiClient.getPayments(undefined, { per_page: 1000 }),
+      ])
       if (!isMounted) return
 
-      setStats(data)
+      if (statsResult.status === 'rejected') throw statsResult.reason
+      setStats(statsResult.value)
+      if (contractsResult.status === 'fulfilled') setContracts(extractDashboardList<Contract>(contractsResult.value))
+      if (paymentsResult.status === 'fulfilled') setPayments(extractDashboardList<Payment>(paymentsResult.value))
       setLastUpdated(new Date())
       setError(null)
     } catch (err: unknown) {
@@ -96,13 +122,34 @@ export default function DashboardPage() {
     }
   }
 
+  const agenda = [
+    ...payments.map((payment) => {
+      const dueDate = payment.dueDate || payment.due_date
+      const days = getDaysUntil(dueDate)
+      const status = String(payment.status || '').toLowerCase()
+      const amount = payment.balance ?? payment.amountDue ?? payment.amount_due ?? payment.totalAmount ?? payment.total_amount
+      return days !== null && days >= 0 && days <= 30 && status !== 'paid'
+        ? { id: `due-${payment.id}`, date: dueDate, title: payment.paymentFor || payment.payment_for || 'Rent payment', detail: `Due ${days === 0 ? 'today' : `in ${days} days`} · ${formatDashboardAmount(amount)}`, href: payment.id ? `/dashboard/payments/${payment.id}` : '/dashboard/payments' }
+        : null
+    }),
+    ...contracts.map((contract) => {
+      const endDate = contract.endDate || contract.end_date
+      const days = getDaysUntil(endDate)
+      return days !== null && days >= 0 && days <= 30 && !['terminated', 'expired', 'renewed'].includes(String(contract.status || '').toLowerCase())
+        ? { id: `expiry-${contract.id}`, date: endDate, title: `Lease expires · ${contract.contractNumber || contract.contract_number || 'Contract'}`, detail: `${days === 0 ? 'Today' : `In ${days} days`} · ${getContractSpaceLabel(contract)}`, href: contract.id ? `/dashboard/contracts/${contract.id}` : '/dashboard/contracts' }
+        : null
+    }),
+  ].filter((event): event is { id: string; date: string; title: string; detail: string; href: string } => Boolean(event))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(0, 6)
+
   if (isLoading) {
     return (
       <ProtectedRoute>
-        <div className="flex h-64 items-center justify-center">
+        <div className="flex min-h-[55vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
           <div className="text-center">
-            <div className="loading-spinner" aria-hidden="true" />
-            <p className="mt-4 text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Loading dashboard</p>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50"><div className="loading-spinner" aria-hidden="true" /></div>
+            <p className="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Loading dashboard</p>
           </div>
         </div>
       </ProtectedRoute>
@@ -111,58 +158,65 @@ export default function DashboardPage() {
 
   return (
     <ProtectedRoute>
-      <div className="space-y-6">
-        <div className="border-b border-[#d9e1e3] pb-5">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div>
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#087f8c]">Operations overview</div>
-                <h1 className="text-2xl font-bold tracking-tight text-[#17333c]">Dashboard Overview</h1>
-                <p className="mt-1 text-xs text-[#70858a]">Welcome to the PFDA Contract Monitoring System</p>
-                {lastUpdated && (
-                  <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-[#70858a]">
-                    Last updated: {lastUpdated.toLocaleTimeString()}
-                  </p>
-                )}
-              </div>
-            </div>
-
+      <div className="space-y-6 pb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-teal-800"><Building2 className="h-3.5 w-3.5" /> Operations overview</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Dashboard</h1>
+            <p className="mt-1 text-sm text-slate-500">Contracts, collections, and day-to-day portfolio activity.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {lastUpdated && <span className="text-xs text-slate-500">Updated {lastUpdated.toLocaleTimeString()}</span>}
             <button
+              type="button"
               onClick={() => fetchDashboardStats()}
               disabled={isRefreshing}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#087f8c] px-4 py-2 text-[11px] font-semibold text-white transition hover:bg-[#05616d] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isRefreshing ? (
-                <>
-                  <span className="loading-spinner" aria-hidden="true" />
-                  Refreshing...
-                </>
-              ) : (
-                'Refresh'
-              )}
+              <RefreshCw className={`h-4 w-4 text-teal-700 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {isRefreshing ? 'Refreshing…' : 'Refresh dashboard'}
             </button>
           </div>
         </div>
 
+        <section aria-label="Dashboard summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <SummaryMetric icon={<FileText className="h-4 w-4" />} label="Active contracts" value={stats?.activeContracts || 0} />
+          <SummaryMetric icon={<Banknote className="h-4 w-4" />} label="Total revenue" value={formatDashboardAmount(stats?.totalRevenue)} />
+          <SummaryMetric icon={<Users className="h-4 w-4" />} label="Tenants" value={stats?.totalTenants || 0} />
+        </section>
+
         {error && (
-          <div className="flex items-start justify-between gap-3 rounded-md border border-[#ed5b69]/20 bg-[#fff2f4] p-4 text-[#c44d5b]">
+          <div role="alert" className="flex items-start justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
             <p className="text-sm font-medium">{error}</p>
-            <button onClick={() => setError(null)} className="text-xl leading-none text-red-500 hover:text-red-700">×</button>
+            <button type="button" aria-label="Dismiss dashboard error" onClick={() => setError(null)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-lg leading-none text-rose-600 transition hover:bg-rose-100 hover:text-rose-800">×</button>
           </div>
         )}
 
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CalendarClock className="h-5 w-5" /></span><div><h2 className="text-sm font-bold text-slate-900">Next 30 days</h2><p className="text-xs text-slate-500">Upcoming rent due dates and lease expirations</p></div></div>
+            <Link href="/dashboard/reports" className="rounded-lg px-3 py-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-50">Open reports</Link>
+          </div>
+          {agenda.length ? <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{agenda.map((event) => (
+            <Link href={event.href} key={event.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-sky-200 hover:bg-sky-50/60 hover:shadow-sm">
+              <div className="flex h-12 min-w-12 flex-col items-center justify-center rounded-lg bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-100"><span className="text-[9px] font-bold uppercase">{new Date(event.date).toLocaleDateString(undefined, { month: 'short' })}</span><span className="text-base font-black leading-4">{new Date(event.date).getDate()}</span></div>
+              <div className="min-w-0"><p className="truncate text-xs font-bold text-slate-800">{event.title}</p><p className="mt-1 truncate text-[11px] text-slate-500">{event.detail}</p></div>
+            </Link>
+          ))}</div> : <p className="rounded-lg bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">Nothing scheduled in the next 30 days.</p>}
+        </section>
+
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_0.85fr]">
           <AnalyticsPanel title="Total Revenue" subtitle="Revenue from recent payments" action="View Report" href="/dashboard/reports">
-            <div className="mb-3 text-lg font-semibold text-[#28334b]">₱{(stats?.totalRevenue || 0).toLocaleString()}</div>
+            <div className="mb-3 text-2xl font-bold tracking-tight text-slate-900">{formatDashboardAmount(stats?.totalRevenue)}</div>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({
                 label: payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-US', { month: 'short' }) : `P${index + 1}`,
-                current: payment.totalAmount || payment.amount || 0,
+                current: parseDashboardAmount(payment.totalAmount ?? payment.amount) ?? 0,
               }))}>
                 <CartesianGrid stroke="#eef0f5" vertical={false} strokeDasharray="3 4" />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#a3a9b8', fontSize: 10 }} />
                 <YAxis hide />
-                <Tooltip formatter={(value) => [`₱${Number(value).toLocaleString()}`, 'Revenue']} />
+                <Tooltip formatter={(value) => [formatDashboardAmount(typeof value === 'string' || typeof value === 'number' ? value : undefined), 'Revenue']} />
                 <Bar dataKey="current" fill="#087f8c" radius={[2, 2, 0, 0]} barSize={12} />
               </BarChart>
             </ResponsiveContainer>
@@ -180,15 +234,15 @@ export default function DashboardPage() {
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute text-center"><div className="text-2xl font-semibold text-[#28334b]">{stats?.totalTenants || 0}</div><div className="text-[10px] text-[#9aa1b3]">Tenants</div></div>
+              <div className="pointer-events-none absolute text-center"><div className="text-2xl font-bold text-slate-900">{stats?.totalTenants || 0}</div><div className="text-[10px] font-medium text-slate-500">Tenants</div></div>
             </div>
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Current contract and payment status" subtitle="" action="View" href="/dashboard/contracts">
-            <div className="flex min-h-[190px] items-center justify-center gap-2">
-              <ActivityBubble value={stats?.overduePayments || 0} label="Overdue" color="#ed5b69" />
-              <ActivityBubble value={stats?.activeContracts || 0} label="Active" color="#f5a43b" large />
-              <ActivityBubble value={stats?.pendingPayments || 0} label="Pending" color="#42bdd9" />
+          <AnalyticsPanel title="Current contract and payment status" subtitle="Current portfolio activity" action="View" href="/dashboard/contracts">
+            <div className="flex min-h-[190px] items-center justify-center gap-3">
+              <ActivityBubble value={stats?.overduePayments || 0} label="Overdue" color="#b94755" />
+              <ActivityBubble value={stats?.activeContracts || 0} label="Active" color="#0b5963" large />
+              <ActivityBubble value={stats?.pendingPayments || 0} label="Pending" color="#527c9f" />
             </div>
           </AnalyticsPanel>
 
@@ -225,24 +279,39 @@ export default function DashboardPage() {
             items={stats?.expiringContracts?.slice(0, 5).map((contract) => ({
               id: contract.id ?? contract.contractNumber ?? 'contract',
               primary: contract.contractNumber || 'Contract',
-              secondary: getContractSpaceLabel(contract as any),
+              secondary: getContractSpaceLabel(contract),
               value: `Expires: ${formatDashboardDate(contract.endDate || contract.end_date)}`,
             })) || []}
             emptyText="No expiring contracts"
           />
         </div>
 
-        <div className="rounded-lg border border-[#d9e1e3] bg-white p-5 shadow-[0_10px_26px_rgba(23,43,53,0.055)]">
-          <h3 className="mb-5 text-base font-bold text-[#17333c]">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <QuickActionButton href="/dashboard/contracts/new" label="New Contract" />
-            <QuickActionButton href="/dashboard/payments/new" label="Record Payment" />
-            <QuickActionButton href="/dashboard/tenants/new" label="Add Tenant" />
-            <QuickActionButton href="/dashboard/reports" label="Generate Report" />
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5">
+            <h3 className="text-base font-bold text-slate-900">Quick actions</h3>
+            <p className="mt-1 text-xs text-slate-500">Shortcuts to common tasks.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <QuickActionButton href="/dashboard/contracts/new" label="New Contract" icon={<FileText className="h-5 w-5" />} />
+            <QuickActionButton href="/dashboard/payments/new" label="Record Payment" icon={<Banknote className="h-5 w-5" />} />
+            <QuickActionButton href="/dashboard/tenants/new" label="Add Tenant" icon={<Users className="h-5 w-5" />} />
+            <QuickActionButton href="/dashboard/reports" label="Generate Report" icon={<ArrowUpRight className="h-5 w-5" />} />
           </div>
         </div>
       </div>
     </ProtectedRoute>
+  )
+}
+
+function SummaryMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-800">{icon}</span>
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+        <p className="mt-1 truncate text-xl font-bold tracking-tight text-slate-900">{value}</p>
+      </div>
+    </div>
   )
 }
 
@@ -260,13 +329,13 @@ function AnalyticsPanel({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-lg border border-[#d9e1e3] bg-white p-5 shadow-[0_10px_26px_rgba(23,43,53,0.055)]">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-[#17333c]">{title}</h2>
-          <p className="mt-1 text-[10px] text-[#70858a]">{subtitle}</p>
+          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
         </div>
-        <Link href={href} className="rounded-md border border-[#d7e6ed] bg-[#f3f9fb] px-3 py-1.5 text-[10px] font-semibold text-[#0a7d8d] transition hover:border-[#0a7d8d] hover:bg-[#eaf8fb]">
+        <Link href={href} className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-[10px] font-bold text-teal-800 transition hover:border-teal-200 hover:bg-teal-100">
           {action}
         </Link>
       </div>
@@ -288,35 +357,11 @@ function ChartLegend({ items }: { items: string[][] }) {
 function ActivityBubble({ value, label, color, large = false }: { value: number; label: string; color: string; large?: boolean }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-full border border-white/30 text-white shadow-[0_14px_28px_rgba(16,35,44,0.12)] ${large ? 'h-32 w-32' : 'h-20 w-20'}`}
+      className={`flex flex-col items-center justify-center rounded-2xl border border-white/20 text-white shadow-sm ring-1 ring-black/5 ${large ? 'h-32 w-32' : 'h-24 w-24'}`}
       style={{ background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)` }}
     >
       <span className={large ? 'text-2xl font-black' : 'text-lg font-bold'}>{value}</span>
       <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">{label}</span>
-    </div>
-  )
-}
-
-function StatsCard({ title, value, link }: { title: string; value: string | number; link?: string }) {
-  const card = (
-    <div className="rounded-lg border border-[#d9e1e3] bg-white p-5 shadow-[0_8px_22px_rgba(23,43,53,0.04)] transition-transform duration-200 hover:-translate-y-0.5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#087f8c]">{title}</p>
-      <p className="mt-3 text-2xl font-bold text-[#17333c]">{value}</p>
-    </div>
-  )
-
-  if (link) {
-    return <Link href={link}>{card}</Link>
-  }
-
-  return card
-}
-
-function MetricRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-md border border-[#d9e1e3] bg-[#f7faf9] p-4">
-      <span className="text-xs text-[#70858a]">{label}</span>
-      <span className="text-base font-bold text-[#17333c]">{value}</span>
     </div>
   )
 }
@@ -333,23 +378,23 @@ function PanelCard({
   emptyText: string
 }) {
   return (
-    <div className="rounded-lg border border-[#d9e1e3] bg-white p-5 shadow-[0_10px_26px_rgba(23,43,53,0.055)]">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h3 className="text-base font-bold text-[#17333c]">{title}</h3>
-        <Link href={viewAllHref} className="text-[11px] font-semibold text-[#087f8c] hover:text-[#05616d]">
+        <h3 className="text-base font-bold text-slate-900">{title}</h3>
+        <Link href={viewAllHref} className="rounded-lg px-3 py-2 text-[11px] font-semibold text-teal-800 transition hover:bg-teal-50">
               View All
         </Link>
       </div>
 
       {items.length > 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {items.map((item) => (
-            <div key={item.id} className="flex items-center justify-between gap-4 border-b border-[#edf1f1] px-1 py-3 last:border-0">
-              <div>
-                <div className="text-xs font-semibold text-[#36525a]">{item.primary}</div>
-                <div className="mt-1 text-[11px] text-[#70858a]">{item.secondary}</div>
+            <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-3 transition hover:border-slate-200 hover:bg-slate-50">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-800">{item.primary}</div>
+                <div className="mt-1 text-[11px] text-slate-500">{item.secondary}</div>
               </div>
-              <div className="text-[11px] font-semibold text-[#087f8c]">{item.value}</div>
+              <div className="shrink-0 text-right text-[11px] font-semibold text-teal-800">{item.value}</div>
             </div>
           ))}
         </div>
@@ -360,13 +405,15 @@ function PanelCard({
   )
 }
 
-function QuickActionButton({ href, label }: { href: string; label: string }) {
+function QuickActionButton({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="flex min-h-[88px] items-center justify-center rounded-xl border border-[#dfe7ea] bg-[linear-gradient(180deg,#f8fbfc_0%,#edf6f8_100%)] px-4 text-center text-xs font-bold uppercase tracking-[0.14em] text-[#34515d] shadow-[0_8px_18px_rgba(19,35,42,0.04)] transition hover:-translate-y-0.5 hover:border-[#8ec5d0] hover:bg-[linear-gradient(180deg,#f0fafb_0%,#e5f4f7_100%)] hover:text-[#0a7d8d]"
+      className="group flex min-h-[76px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-teal-200 hover:bg-teal-50/50 hover:shadow-sm"
     >
-      {label}
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition group-hover:bg-teal-100 group-hover:text-teal-800">{icon}</span>
+      <span className="text-xs font-bold text-slate-700 transition group-hover:text-teal-900">{label}</span>
+      <ArrowUpRight className="ml-auto h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-teal-700" aria-hidden="true" />
     </Link>
   )
 }

@@ -37,31 +37,30 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden bg-[#ecf2f3] lg:flex-row">
+    <div className="flex min-h-screen flex-col overflow-hidden bg-[#eef3f2] lg:flex-row">
       <section
-        className="relative min-h-[42vh] overflow-hidden bg-cover bg-center lg:min-h-screen lg:w-[62%] lg:rounded-r-[42%]"
+        className="relative min-h-[42vh] overflow-hidden bg-cover bg-center lg:min-h-screen lg:w-[58%] lg:rounded-r-[18%]"
         style={{ backgroundImage: "url('/loginbg.png')" }}
       >
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(8,54,62,0.80),rgba(10,79,86,0.42)_52%,rgba(11,31,45,0.78))]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(255,255,255,0.18),transparent_30%),radial-gradient(circle_at_85%_80%,rgba(210,139,50,0.18),transparent_28%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(8,54,62,0.88),rgba(10,79,86,0.52)_52%,rgba(11,31,45,0.88))]" />
         <div className="relative flex h-full min-h-[42vh] items-end p-7 text-white sm:p-10 lg:min-h-screen lg:items-end lg:p-20">
           <div className="max-w-md">
-            <div className="mb-5 inline-flex rounded-full border border-white/40 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-white backdrop-blur-sm">
+            <div className="mb-5 inline-flex rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-[0.28em] text-white backdrop-blur-sm">
               PFDA
             </div>
-            <h2 className="text-3xl font-black leading-tight sm:text-4xl lg:text-6xl">Bulan Fish Port Complex</h2>
+            <h2 className="max-w-xl text-3xl font-black leading-tight sm:text-4xl lg:text-6xl">Bulan Fish Port Complex</h2>
             <p className="mt-4 max-w-sm text-sm leading-6 text-white/85 lg:text-base">Philippine Fisheries Development Authority</p>
           </div>
         </div>
       </section>
 
-      <section className="relative flex flex-1 items-center justify-center overflow-hidden bg-[linear-gradient(135deg,#f7faf9_0%,#edf5f4_46%,#f8f4ec_100%)] px-4 py-10 sm:px-8 lg:w-[38%] lg:px-10 xl:px-16">
+      <section className="relative flex flex-1 items-center justify-center overflow-hidden bg-[#f7faf9] px-4 py-10 sm:px-8 lg:w-[42%] lg:px-10 xl:px-16">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,rgba(255,255,255,0.72)_44%,transparent_45%,transparent_100%)]" />
         <div className="relative z-10 w-full max-w-sm">
-          <div className="rounded-[28px] border border-white/80 bg-white/90 p-7 shadow-[0_28px_80px_rgba(8,54,62,0.13)] backdrop-blur-md sm:p-8">
+          <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-[0_24px_70px_rgba(8,54,62,0.12)] sm:p-8">
             <div className="mb-8 text-center">
               <div className="mb-4 flex justify-center">
-                <div className="rounded-2xl border border-[#dbeef2] bg-[#edf9fb] p-3 shadow-sm">
+                <div className="rounded-xl border border-[#dbeef2] bg-[#edf9fb] p-3 shadow-sm">
                   <PFDALogo />
                 </div>
               </div>
@@ -84,7 +83,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
                   placeholder="your.email@example.com"
                 />
               </div>
@@ -99,7 +98,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#0a7d8d] focus:bg-white focus:ring-4 focus:ring-[#d8f0f2]"
                   placeholder="••••••••"
                 />
               </div>
@@ -107,7 +106,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="mt-6 w-full rounded-xl bg-[linear-gradient(135deg,#0a7d8d_0%,#0c5d74_100%)] px-4 py-3 text-sm font-bold text-white shadow-[0_12px_24px_rgba(10,125,141,0.24)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-6 w-full rounded-lg bg-[#0a7d8d] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_22px_rgba(10,125,141,0.22)] transition hover:bg-[#075c66] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading ? (
                   <span className="flex items-center justify-center gap-2">

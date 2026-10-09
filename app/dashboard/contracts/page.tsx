@@ -7,7 +7,11 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { Contract } from '@/types'
 import Pagination from '@/components/Pagination'
-import { Eye } from 'lucide-react'
+import { Plus, Eye } from 'lucide-react'
+import { dateForInput, formatCalendarDate } from '@/lib/date-format'
+import { statusColorClass } from '@/lib/status-colors'
+import SearchableRentalSpaceSelect from '@/components/SearchableRentalSpaceSelect'
+import SearchableTenantSelect from '@/components/SearchableTenantSelect'
 
 function ContractsPageContent() {
   const searchParams = useSearchParams()
@@ -39,7 +43,6 @@ function ContractsPageContent() {
     endDate: '',
     monthlyRent: '',
     securityDeposit: '',
-    terms: '',
   })
 
   useEffect(() => {
@@ -98,13 +101,17 @@ function ContractsPageContent() {
       
       // Map numeric fields to ensure they're properly parsed
       const mappedContracts = contractList.map((c: any) => {
-        const monthlyRentValue = parseFloat(String(c.monthlyRental || 0))
-        const securityDepositValue = parseFloat(String(c.depositAmount || 0))
+        const monthlyRentValue = parseFloat(String(c.monthlyRental || c.monthly_rental || c.monthlyRent || c.monthly_rent || 0))
+        const securityDepositValue = parseFloat(String(c.depositAmount || c.deposit_amount || c.securityDeposit || c.security_deposit || 0))
         
         return {
           ...c,
+          tenantId: c.tenantId || c.tenant_id || c.tenant?.id,
+          rentalSpaceId: c.rentalSpaceId || c.rental_space_id || c.rentalSpace?.id || c.rental_space?.id,
           monthlyRent: monthlyRentValue,
+          monthlyRental: monthlyRentValue,
           securityDeposit: securityDepositValue,
+          depositAmount: securityDepositValue,
           interestRate: parseFloat(String(c.interestRate || 0)),
           startDate: c.startDate || c.start_date,
           endDate: c.endDate || c.end_date,
@@ -124,6 +131,8 @@ function ContractsPageContent() {
   }
 
   const filteredContracts = Array.isArray(contracts) ? contracts.filter((contract) => {
+    if (String(contract.status || '').toLowerCase() === 'terminated') return false
+
     const searchLower = searchTerm.toLowerCase()
     const tenantName = (contract.tenant?.contactPerson || contract.tenant?.user?.name || '').toLowerCase()
     const spaceName = (contract.rentalSpace?.spaceCode || contract.rentalSpace?.name || '').toLowerCase()
@@ -133,18 +142,10 @@ function ContractsPageContent() {
       spaceName.includes(searchLower)
     )
   }) : []
-  const paginatedContracts = filteredContracts.slice((currentPage - 1) * 15, currentPage * 15)
+  const paginatedContracts = filteredContracts.slice((currentPage - 1) * 10, currentPage * 10)
 
   const getStatusBadge = (status: string) => {
-    const colors = {
-      ACTIVE: 'bg-emerald-100 text-emerald-800',
-      EXPIRED: 'bg-amber-100 text-amber-800',
-      TERMINATED: 'bg-rose-100 text-rose-800',
-      RENEWED: 'bg-indigo-100 text-indigo-800',
-      PENDING: 'bg-blue-100 text-blue-800',
-      FOR_RENEWAL: 'bg-indigo-100 text-indigo-800 font-bold',
-    }
-    return colors[status as keyof typeof colors] || 'bg-slate-100 text-slate-800'
+    return statusColorClass(status)
   }
 
   const handleDeleteContract = async (contract: any) => {
@@ -200,7 +201,6 @@ function ContractsPageContent() {
       endDate: '',
       monthlyRent: '',
       securityDeposit: '',
-      terms: '',
     })
     setModalError(null)
     setModalSuccess(null)
@@ -211,23 +211,29 @@ function ContractsPageContent() {
   }
 
   const openEditModal = async (contract: any) => {
-    const startStr = contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : ''
+    const startStr = dateForInput(contract.startDate || contract.start_date)
     setEditingContractId(contract.id)
     setOriginalStartDate(startStr)
     setFormData({
       tenantId: contract.tenantId?.toString() || contract.tenant?.id?.toString() || '',
-      rentalSpaceId: contract.rentalSpaceId?.toString() || contract.rentalSpace?.id?.toString() || '',
+      rentalSpaceId: String(contract.rentalSpaceId || contract.rental_space_id || contract.rentalSpace?.id || contract.rental_space?.id || ''),
       startDate: startStr,
-      endDate: contract.endDate ? new Date(contract.endDate).toISOString().split('T')[0] : '',
-      monthlyRent: contract.monthlyRental?.toString() || contract.monthlyRent?.toString() || '',
-      securityDeposit: contract.depositAmount?.toString() || contract.securityDeposit?.toString() || '',
-      terms: contract.termsConditions || contract.terms || '',
+      endDate: dateForInput(contract.endDate || contract.end_date),
+      monthlyRent: (contract.monthlyRental || contract.monthly_rental || contract.monthlyRent || contract.monthly_rent)?.toString() || '',
+      securityDeposit: (contract.depositAmount || contract.deposit_amount || contract.securityDeposit || contract.security_deposit)?.toString() || '',
     })
     setModalError(null)
     setModalSuccess(null)
     setModalLoading(true)
     setShowModal(true)
     await fetchModalData()
+    const currentSpace = contract.rentalSpace || contract.rental_space
+    const currentSpaceId = String(contract.rentalSpaceId || contract.rental_space_id || currentSpace?.id || '')
+    if (currentSpaceId) {
+      setSpaces((previous) => previous.some((space: any) => String(space.id) === currentSpaceId)
+        ? previous
+        : [{ ...(currentSpace || {}), id: currentSpaceId }, ...previous])
+    }
     setModalLoading(false)
   }
 
@@ -249,17 +255,27 @@ function ContractsPageContent() {
       const selectedSpace = spaces.find((s: any) => s.id == value)
       const baseRate = selectedSpace?.baseRentalRate || selectedSpace?.base_rental_rate || formData.monthlyRent
       
-      setFormData({
-        ...formData,
+      setFormData((previous) => ({
+        ...previous,
         [name]: value,
-        monthlyRent: baseRate ? String(baseRate) : formData.monthlyRent,
-      })
+        monthlyRent: baseRate ? String(baseRate) : previous.monthlyRent,
+      }))
     } else {
-      setFormData({
-        ...formData,
+      setFormData((previous) => ({
+        ...previous,
         [name]: value,
-      })
+      }))
     }
+  }
+
+  const handleRentalSpaceSelect = (spaceId: string) => {
+    const selectedSpace = spaces.find((space: any) => String(space.id) === spaceId)
+    const baseRate = selectedSpace?.baseRentalRate || selectedSpace?.base_rental_rate
+    setFormData((previous) => ({
+      ...previous,
+      rentalSpaceId: spaceId,
+      monthlyRent: baseRate ? String(baseRate) : previous.monthlyRent,
+    }))
   }
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -267,6 +283,18 @@ function ContractsPageContent() {
     setIsSubmitting(true)
     setModalError(null)
     setModalSuccess(null)
+
+    if (!formData.tenantId) {
+      setModalError('Please select a tenant.')
+      setIsSubmitting(false)
+      return
+    }
+
+    if (!formData.rentalSpaceId) {
+      setModalError('Please select a rental space.')
+      setIsSubmitting(false)
+      return
+    }
 
     const todayStr = new Date().toISOString().split('T')[0]
 
@@ -298,7 +326,6 @@ function ContractsPageContent() {
         endDate: formData.endDate,
         monthlyRent: parseFloat(formData.monthlyRent),
         securityDeposit: parseFloat(formData.securityDeposit),
-        terms: formData.terms,
       }
 
       if (editingContractId) {
@@ -329,24 +356,7 @@ function ContractsPageContent() {
 
   return (
     <ProtectedRoute>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Contracts</h1>
-            <p className="text-slate-600 text-base mt-1">
-              {tenantId ? `Contracts for tenant #${tenantId}` : 'Manage rental contracts and agreements'}
-            </p>
-          </div>
-          <button
-            onClick={openAddModal}
-            title="New Contract"
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all"
-          >
-            + New Contract
-          </button>
-        </div>
-
+      <div className="space-y-6 pb-8">
         {/* Error Message */}
         {error && (
           <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex items-start gap-3">
@@ -368,7 +378,7 @@ function ContractsPageContent() {
         )}
 
         {/* Filters and Search */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white rounded-lg shadow p-6 border border-gray-100">
+        <div className="grid grid-cols-1 items-end gap-4 rounded-lg border border-gray-100 bg-white p-6 shadow md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           {/* Search */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Search</label>
@@ -394,10 +404,17 @@ function ContractsPageContent() {
               <option value="for_renewal">For Renewal</option>
               <option value="active">Active</option>
               <option value="expired">Expired</option>
-              <option value="terminated">Terminated</option>
               <option value="renewed">Renewed</option>
             </select>
           </div>
+          <button
+            type="button"
+            onClick={openAddModal}
+            title="New Contract"
+            className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-teal-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-100"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />New contract
+          </button>
         </div>
 
         {/* Contracts Table */}
@@ -456,8 +473,7 @@ function ContractsPageContent() {
                         })()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {contract.startDate ? new Date(contract.startDate || '').toLocaleDateString() : 'N/A'} to{' '}
-                        {contract.endDate ? new Date(contract.endDate || '').toLocaleDateString() : 'N/A'}
+                        {formatCalendarDate(contract.startDate)} to {formatCalendarDate(contract.endDate)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                         ₱{(contract.monthlyRent || 0).toLocaleString()}
@@ -559,25 +575,12 @@ function ContractsPageContent() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Tenant <span className="text-red-500">*</span>
                     </label>
-                    <select
-                      name="tenantId"
-                      required
+                    <SearchableTenantSelect
+                      tenants={tenants}
                       value={formData.tenantId}
-                      onChange={handleFormChange}
+                      onChange={(tenantId) => setFormData((previous) => ({ ...previous, tenantId }))}
                       disabled={isSubmitting}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                    >
-                      <option value="">Select tenant</option>
-                      {tenants.map((tenant: any) => {
-                        const tenantName = tenant.businessName || tenant.business_name || tenant.contactPerson || 'Unknown'
-                        const tenantIdentifier = tenant.contactPerson || tenant.contact_person || tenant.email || 'N/A'
-                        return (
-                          <option key={tenant.id} value={tenant.id}>
-                            {tenantName} - {tenantIdentifier}
-                          </option>
-                        )
-                      })}
-                    </select>
+                    />
                   </div>
 
                   {/* Rental Space Selection */}
@@ -585,24 +588,12 @@ function ContractsPageContent() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Rental Space <span className="text-red-500">*</span>
                     </label>
-                    <select
-                      name="rentalSpaceId"
-                      required
+                    <SearchableRentalSpaceSelect
+                      spaces={spaces}
                       value={formData.rentalSpaceId}
-                      onChange={handleFormChange}
+                      onChange={handleRentalSpaceSelect}
                       disabled={isSubmitting}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                    >
-                      <option value="">Select rental space</option>
-                      {spaces.map((space: any) => (
-                        <option key={space.id} value={space.id}>
-                          {space.space_code || space.spaceCode || space.spaceNumber} - {space.name || space.location} ({space.size_sqm || space.squareMeters} sqm)
-                          {(space.base_rental_rate || space.baseRentalRate) && (
-                            <> • ₱{(space.base_rental_rate || space.baseRentalRate).toLocaleString()}/month</>
-                          )}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
 
                   {/* Date Range */}
@@ -676,22 +667,6 @@ function ContractsPageContent() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                       />
                     </div>
-                  </div>
-
-                  {/* Terms and Conditions */}
-                  <div className="form-section">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Terms and Conditions
-                    </label>
-                    <textarea
-                      name="terms"
-                      rows={6}
-                      value={formData.terms}
-                      onChange={handleFormChange}
-                      disabled={isSubmitting}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none disabled:bg-gray-100"
-                      placeholder="Enter contract terms and conditions..."
-                    />
                   </div>
 
                   {/* Actions */}

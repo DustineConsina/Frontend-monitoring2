@@ -5,6 +5,13 @@ import { useParams, useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { User, RentalSpace } from '@/types'
+import { dateForInput } from '@/lib/date-format'
+import SearchableRentalSpaceSelect from '@/components/SearchableRentalSpaceSelect'
+import SearchableTenantSelect from '@/components/SearchableTenantSelect'
+
+function unwrapContractResponse(response: any) {
+  return response?.data?.data || response?.data || response
+}
 
 export default function EditContractPage() {
   const params = useParams()
@@ -18,7 +25,6 @@ export default function EditContractPage() {
     endDate: '',
     monthlyRent: '',
     securityDeposit: '',
-    terms: '',
   })
 
   const [tenants, setTenants] = useState<User[]>([])
@@ -37,20 +43,27 @@ export default function EditContractPage() {
     try {
       // Fetch contract data
       const contractResponse = await apiClient.getContract(contractId.toString())
-      const contract = contractResponse.data || contractResponse
-      const startDate = contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : ''
+      const contract = unwrapContractResponse(contractResponse)
+      const startDate = dateForInput(contract.startDate || contract.start_date)
+      const endDate = dateForInput(contract.endDate || contract.end_date)
+      const rentalSpaceId = String(
+        contract.rentalSpaceId || contract.rental_space_id || contract.rentalSpace?.id || contract.rental_space?.id || ''
+      )
       setOriginalStartDate(startDate)
+      setFormData((prev) => ({
+        ...prev,
+        rentalSpaceId: rentalSpaceId,
+      }))
       
       // NOTE: apiClient converts ALL response keys from snake_case to camelCase
       // So contract.tenant_id becomes contract.tenantId, etc.
       setFormData({
         tenantId: contract.tenantId?.toString() || contract.tenant?.id?.toString() || '',
-        rentalSpaceId: contract.rentalSpaceId?.toString() || contract.rentalSpace?.id?.toString() || '',
+        rentalSpaceId,
         startDate,
-        endDate: contract.endDate ? new Date(contract.endDate).toISOString().split('T')[0] : '',
-        monthlyRent: contract.monthlyRental?.toString() || contract.monthlyRent?.toString() || '',
-        securityDeposit: contract.depositAmount?.toString() || contract.securityDeposit?.toString() || '',
-        terms: contract.termsConditions || contract.terms || '',
+        endDate,
+        monthlyRent: (contract.monthlyRental || contract.monthly_rental || contract.monthlyRent || contract.monthly_rent)?.toString() || '',
+        securityDeposit: (contract.depositAmount || contract.deposit_amount || contract.securityDeposit || contract.security_deposit)?.toString() || '',
       })
 
       // Fetch tenants and spaces for dropdowns
@@ -58,11 +71,11 @@ export default function EditContractPage() {
       const spacesResponse = await apiClient.getRentalSpaces()
       
       // Handle paginated responses from Laravel
-      let tenantsArray = Array.isArray(tenantsResponse) 
+      const tenantsArray = Array.isArray(tenantsResponse) 
         ? tenantsResponse 
         : (tenantsResponse.data?.data || tenantsResponse.data || [])
       
-      let spacesArray = Array.isArray(spacesResponse) 
+      const spacesArray = Array.isArray(spacesResponse) 
         ? spacesResponse 
         : (spacesResponse.data?.data || spacesResponse.data || [])
 
@@ -81,8 +94,14 @@ export default function EditContractPage() {
         })
       })
 
+      const currentSpace = contract.rentalSpace || contract.rental_space
+      const hasCurrentSpace = spacesArray.some((space: any) => String(space.id) === rentalSpaceId)
+      const spacesWithCurrent = !hasCurrentSpace && rentalSpaceId
+        ? [{ ...(currentSpace || {}), id: rentalSpaceId }, ...spacesArray]
+        : spacesArray
+
       setTenants(tenantsArray)
-      setSpaces(spacesArray)
+      setSpaces(spacesWithCurrent)
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to load contract data')
@@ -126,17 +145,27 @@ export default function EditContractPage() {
         console.log(`     Available spaces:`, spaces.map((s: any) => ({ id: s.id, code: s.spaceCode || s.space_code })))
       }
       
-      setFormData({
-        ...formData,
+      setFormData((previous) => ({
+        ...previous,
         [name]: value,
         monthlyRent: newMonthlyRent,
-      })
+      }))
     } else {
-      setFormData({
-        ...formData,
+      setFormData((previous) => ({
+        ...previous,
         [name]: value,
-      })
+      }))
     }
+  }
+
+  const handleRentalSpaceSelect = (spaceId: string) => {
+    const selectedSpace = spaces.find((space) => String(space.id) === spaceId)
+    const baseRate = selectedSpace?.baseRentalRate || selectedSpace?.base_rental_rate
+    setFormData((previous) => ({
+      ...previous,
+      rentalSpaceId: spaceId,
+      monthlyRent: baseRate ? String(baseRate) : previous.monthlyRent,
+    }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -144,8 +173,17 @@ export default function EditContractPage() {
     setError(null)
     setSuccessMessage(null)
 
-    const todayStr = new Date().toISOString().split('T')[0]
+    if (!formData.tenantId) {
+      setError('Please select a tenant.')
+      return
+    }
 
+    if (!formData.rentalSpaceId) {
+      setError('Please select a rental space.')
+      return
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0]
     if (formData.startDate < todayStr && formData.startDate !== originalStartDate) {
       setError('Start date cannot be set to a past date.')
       return
@@ -169,10 +207,25 @@ export default function EditContractPage() {
         endDate: formData.endDate,
         monthlyRent: monthlyRentValue,
         securityDeposit: securityDepositValue,
-        terms: formData.terms,
       }
 
       await apiClient.updateContract(contractId.toString(), updatePayload)
+      const refreshedContract = unwrapContractResponse(await apiClient.getContract(contractId.toString()))
+      const updatedContract = refreshedContract
+      const updatedStartDate = dateForInput(updatedContract?.startDate || updatedContract?.start_date)
+      const updatedEndDate = dateForInput(updatedContract?.endDate || updatedContract?.end_date)
+
+      if (updatedStartDate !== formData.startDate || updatedEndDate !== formData.endDate) {
+        throw new Error('The backend did not return the updated rental period. Please try again.')
+      }
+
+      if (updatedStartDate || updatedEndDate) {
+        setFormData((previous) => ({
+          ...previous,
+          startDate: updatedStartDate || previous.startDate,
+          endDate: updatedEndDate || previous.endDate,
+        }))
+      }
       
       setSuccessMessage('✅ Contract updated successfully')
       setTimeout(() => setSuccessMessage(null), 3000)
@@ -252,24 +305,11 @@ export default function EditContractPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tenant <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    name="tenantId"
-                    required
+                  <SearchableTenantSelect
+                    tenants={tenants}
                     value={formData.tenantId}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select tenant</option>
-                    {tenants.map((tenant: any) => {
-                      const tenantName = tenant.businessName || tenant.business_name || tenant.contactPerson || 'Unknown'
-                      const tenantIdentifier = tenant.contactPerson || tenant.contact_person || tenant.email || 'N/A'
-                      return (
-                        <option key={tenant.id} value={tenant.id}>
-                          {tenantName} - {tenantIdentifier}
-                        </option>
-                      )
-                    })}
-                  </select>
+                    onChange={(tenantId) => setFormData((previous) => ({ ...previous, tenantId }))}
+                  />
                 </div>
 
                 {/* Rental Space Selection */}
@@ -277,28 +317,15 @@ export default function EditContractPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Rental Space <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    name="rentalSpaceId"
-                    required
+                  <SearchableRentalSpaceSelect
+                    spaces={spaces.filter((space) => {
+                      const fields = space as RentalSpace & { activeContractsCount?: number; active_contracts_count?: number }
+                      const activeContractCount = fields.activeContractsCount || fields.active_contracts_count || 0
+                      return activeContractCount === 0 || String(space.id) === String(formData.rentalSpaceId)
+                    })}
                     value={formData.rentalSpaceId}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-border-transparent outline-none"
-                  >
-                    <option value="">Select rental space</option>
-                    {spaces
-                      .filter((space: any) => {
-                        const activeContractCount = space.activeContractsCount || space.active_contracts_count || 0
-                        return activeContractCount === 0 || parseInt(formData.rentalSpaceId) === space.id
-                      })
-                      .map((space: any) => (
-                        <option key={space.id} value={space.id}>
-                          {space.space_code || space.spaceCode || space.spaceNumber} - {space.name || space.location} ({space.size_sqm || space.squareMeters} sqm)
-                          {(space.base_rental_rate || space.baseRentalRate) && (
-                            <> • ₱{(space.base_rental_rate || space.baseRentalRate).toLocaleString()}/month</>
-                          )}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={handleRentalSpaceSelect}
+                  />
                 </div>
 
                 {/* Date Range */}
@@ -368,21 +395,6 @@ export default function EditContractPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     />
                   </div>
-                </div>
-
-                {/* Terms and Conditions */}
-                <div className="form-section">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Terms and Conditions
-                  </label>
-                  <textarea
-                    name="terms"
-                    rows={6}
-                    value={formData.terms}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-                    placeholder="Enter contract terms and conditions..."
-                  />
                 </div>
 
           {/* Actions */}

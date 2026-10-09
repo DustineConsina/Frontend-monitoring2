@@ -1,306 +1,268 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
-import { Message } from '@/types'
-import Pagination from '@/components/Pagination'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Inbox,
+  LoaderCircle,
+  MessageSquareText,
+  Search,
+  Send,
+  Smartphone,
+  X,
+} from 'lucide-react'
+import { ComplaintsPanel } from '../complaints/page'
+
+type ChatUser = {
+  id: string | number
+  name?: string
+  firstName?: string
+  lastName?: string
+  tenant?: {
+    businessName?: string
+    contactPerson?: string
+  }
+}
+
+type SmsHistoryItem = {
+  id: number
+  message: string
+  phoneNumber: string
+  providerMessageId?: string
+  status: string
+  errorMessage?: string
+  createdAt?: string
+  recipientUser?: ChatUser
+}
+
+type WorkspaceTab = 'messages' | 'complaints'
+
+const unwrap = (response: any) => response?.data?.data ?? response?.data ?? response
+const getUserName = (user?: ChatUser) => {
+  if (!user) return 'Unknown user'
+  if ('name' in user && user.name) return user.name
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ')
+  return name || 'Unknown user'
+}
+const isSuccessfulStatus = (status: string) => ['sent', 'delivered'].includes(status.toLowerCase())
+const isFailedStatus = (status: string) => ['failed', 'rejected', 'refunded', 'unknown'].includes(status.toLowerCase())
+const getReminderType = (message: string) => {
+  const text = message.toLowerCase()
+  if (text.includes('overdue') || text.includes('past due')) return 'Payment overdue'
+  if (text.includes('renewal') || text.includes('renew')) return 'Contract renewal'
+  if (text.includes('expired') || text.includes('expiration')) return 'Contract expired'
+  return 'Automatic reminder'
+}
 
 export default function MessagesPage() {
-  const { user } = useAuth()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
-  const [newMessage, setNewMessage] = useState({
-    subject: '',
-    content: '',
-    receiverId: '',
-  })
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showCompose, setShowCompose] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [tab, setTab] = useState<WorkspaceTab>('messages')
+  const [smsMessages, setSmsMessages] = useState<SmsHistoryItem[]>([])
+  const [selectedSms, setSelectedSms] = useState<SmsHistoryItem | null>(null)
+  const [isSmsLoading, setIsSmsLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
 
-  const paginatedMessages = messages.slice((currentPage - 1) * 15, currentPage * 15)
-
-  const getDeliveryStatus = (message: Message) => {
-    const status = message.deliveryStatus || message.delivery_status || message.smsStatus || message.sms_status
-    const normalizedStatus = String(status || 'pending').toLowerCase()
-
-    if (['delivered', 'sent', 'queued', 'failed', 'pending'].includes(normalizedStatus)) {
-      return normalizedStatus
+  const loadSmsMessages = useCallback(async () => {
+    try {
+      const response = await apiClient.getSmsMessages()
+      const data = unwrap(response)
+      setSmsMessages(Array.isArray(data) ? data as SmsHistoryItem[] : [])
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load sent SMS messages.')
+    } finally {
+      setIsSmsLoading(false)
     }
-
-    return 'pending'
-  }
-
-  const getDeliveryStatusStyle = (status: string) => {
-    switch (status) {
-      case 'delivered':
-        return 'bg-green-100 text-green-800'
-      case 'sent':
-        return 'bg-blue-100 text-blue-800'
-      case 'failed':
-        return 'bg-red-100 text-red-800'
-      case 'queued':
-        return 'bg-yellow-100 text-yellow-800'
-      default:
-        return 'bg-gray-100 text-gray-700'
-    }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchMessages()
-
+    void loadSmsMessages()
     const refreshTimer = window.setInterval(() => {
-      void fetchMessages()
+      void loadSmsMessages()
     }, 15000)
 
     return () => window.clearInterval(refreshTimer)
-  }, [])
+  }, [loadSmsMessages])
 
-  const fetchMessages = async () => {
-    try {
-      const data = await apiClient.getMessages()
-      setMessages(Array.isArray(data) ? data : [])
-      setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load messages')
-      setMessages([])
-    } finally {
-      setIsLoading(false)
-    }
+  const filteredSmsMessages = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return smsMessages
+    return smsMessages.filter((item) => {
+      const recipientName = getUserName(item.recipientUser)
+      return `${recipientName} ${item.phoneNumber} ${item.message}`.toLowerCase().includes(query)
+    })
+  }, [search, smsMessages])
+
+  const successfulCount = useMemo(
+    () => smsMessages.filter((message) => isSuccessfulStatus(String(message.status || ''))).length,
+    [smsMessages],
+  )
+  const attentionCount = smsMessages.length - successfulCount
+
+  const openSmsMessage = (message: SmsHistoryItem) => {
+    setSelectedSms(message)
   }
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      await apiClient.sendMessage(newMessage)
-      setNewMessage({ subject: '', content: '', receiverId: '' })
-      setShowCompose(false)
-      fetchMessages()
-    } catch (err: any) {
-      setError(err.message || 'Message could not be sent')
-    }
-  }
-
-  const handleSelectMessage = async (message: Message) => {
-    setSelectedMessage(message)
-    if (!message.isRead && message.id) {
-      try {
-        await apiClient.markMessageAsRead(message.id)
-        fetchMessages()
-      } catch (err) {
-        console.error('Failed to mark as read:', err)
-      }
-    }
+  const handleTabChange = (nextTab: WorkspaceTab) => {
+    setTab(nextTab)
+    setSelectedSms(null)
+    setError('')
   }
 
   return (
     <ProtectedRoute>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <main className="space-y-6 pb-8">
+        <header className="flex flex-col gap-5 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Messages</h2>
-            <p className="text-gray-600">Communication between staff and tenants</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">Communications</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">Messages &amp; complaints</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Track automatic payment and contract reminders, and manage tenant support requests.</p>
           </div>
+          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800">
+            <span className="h-2 w-2 rounded-full bg-teal-600" />
+            Automatic reminders
+          </div>
+        </header>
+
+        {tab === 'messages' && <section className="grid gap-3 sm:grid-cols-3" aria-label="Reminder delivery summary">
+          <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div><p className="text-xs font-semibold text-slate-500">Total reminders</p><p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{smsMessages.length}</p></div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><MessageSquareText className="h-5 w-5" /></span>
+          </article>
+          <article className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+            <div><p className="text-xs font-semibold text-slate-500">Sent or delivered</p><p className="mt-1 text-2xl font-bold tabular-nums text-emerald-800">{successfulCount}</p></div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-5 w-5" /></span>
+          </article>
+          <article className="flex items-center justify-between rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+            <div><p className="text-xs font-semibold text-slate-500">Other statuses</p><p className="mt-1 text-2xl font-bold tabular-nums text-amber-800">{attentionCount}</p></div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><AlertTriangle className="h-5 w-5" /></span>
+          </article>
+        </section>}
+
+        <nav className="flex w-fit gap-1 rounded-xl bg-slate-100 p-1" aria-label="Communications sections">
           <button
-            onClick={() => setShowCompose(!showCompose)}
-            title="New Message"
-            className="action-primary inline-flex h-10 w-10 items-center justify-center rounded-lg border"
+            type="button"
+            onClick={() => handleTabChange('messages')}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${tab === 'messages' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            aria-current={tab === 'messages' ? 'page' : undefined}
           >
-            +
+            <Send className="h-4 w-4" />
+            Reminders
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${tab === 'messages' ? 'bg-teal-50 text-teal-800' : 'bg-slate-200 text-slate-600'}`}>{smsMessages.length}</span>
           </button>
-        </div>
+          <button
+            type="button"
+            onClick={() => handleTabChange('complaints')}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${tab === 'complaints' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            aria-current={tab === 'complaints' ? 'page' : undefined}
+          >
+            <Inbox className="h-4 w-4" />
+            Complaints
+          </button>
+        </nav>
 
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <span className="text-2xl">⚠️</span>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Compose Message Modal */}
-        {showCompose && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#28334b]/40 p-4 backdrop-blur-sm">
-            <div className="modal-shell w-full max-w-2xl">
-              <div className="modal-body">
-                <div className="modal-header -mx-6 -mt-6 mb-6 flex items-center justify-between">
-                  <h3 className="text-xl font-semibold text-gray-900">New Message</h3>
+        {tab === 'complaints' ? <ComplaintsPanel /> : (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-800 text-white"><Smartphone className="h-5 w-5" /></span>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Automatic reminder log</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Payment overdue · Contract renewal · Contract expired</p>
                 </div>
-                <form onSubmit={handleSendMessage} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Recipient user ID
-                    </label>
-                    <input
-                      type="text"
-                      value={newMessage.receiverId}
-                      required
-                      onChange={(e) =>
-                        setNewMessage({ ...newMessage, receiverId: e.target.value })
-                      }
-                      placeholder="Recipient ID"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Subject
-                    </label>
-                    <input
-                      type="text"
-                      value={newMessage.subject}
-                      onChange={(e) =>
-                        setNewMessage({ ...newMessage, subject: e.target.value })
-                      }
-                      placeholder="Message subject"
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Message
-                    </label>
-                    <textarea
-                      value={newMessage.content}
-                      onChange={(e) =>
-                        setNewMessage({ ...newMessage, content: e.target.value })
-                      }
-                      placeholder="Type your message here..."
-                      required
-                      rows={6}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-                    />
-                  </div>
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      onClick={() => setShowCompose(false)}
-                      title="Cancel"
-                      className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      title="Send Message"
-                      className="action-primary rounded-lg border px-4 py-2 text-sm font-semibold"
-                    >
-                      Send Message
-                    </button>
-                  </div>
-                </form>
               </div>
+              <label className="relative block w-full sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search reminders" className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-50" />
+              </label>
             </div>
-          </div>
+
+            {error && <p role="alert" className="m-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+
+            {isSmsLoading ? (
+              <div className="flex min-h-72 items-center justify-center text-sm text-slate-500"><LoaderCircle className="mr-2 h-4 w-4 animate-spin text-teal-700" /> Loading reminders…</div>
+            ) : filteredSmsMessages.length === 0 ? (
+              <div className="flex min-h-72 flex-col items-center justify-center px-5 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><Inbox className="h-6 w-6" /></span>
+                <p className="mt-4 text-sm font-semibold text-slate-800">{smsMessages.length ? 'No matching reminders' : 'No reminders sent yet'}</p>
+                <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">{smsMessages.length ? 'Try another recipient, phone number, or search term.' : 'Automatic payment and contract reminders will appear here after they are sent.'}</p>
+              </div>
+            ) : (
+              <div>
+                <div className="hidden grid-cols-[minmax(170px,0.8fr)_minmax(150px,0.7fr)_minmax(240px,1.6fr)_minmax(120px,0.7fr)_auto] gap-4 border-b border-slate-100 px-5 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 md:grid">
+                  <span>Recipient</span><span>Reminder type</span><span>Message</span><span>Date sent</span><span>Status</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {filteredSmsMessages.map((message) => {
+                    const successful = isSuccessfulStatus(String(message.status || ''))
+                    return (
+                      <button
+                        key={`sms-${message.id}`}
+                        type="button"
+                        onClick={() => openSmsMessage(message)}
+                        className="group grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-600 sm:px-5 md:grid-cols-[minmax(170px,0.8fr)_minmax(150px,0.7fr)_minmax(240px,1.6fr)_minmax(120px,0.7fr)_auto] md:items-center md:gap-4"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-800"><Smartphone className="h-4 w-4" /></span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold text-slate-800">{message.recipientUser ? getUserName(message.recipientUser) : 'Tenant'}</span>
+                            <span className="mt-0.5 block truncate text-xs text-slate-500">{message.phoneNumber}</span>
+                          </span>
+                        </span>
+                        <span className="pl-12 text-xs font-semibold text-teal-800 md:pl-0">{getReminderType(message.message)}</span>
+                        <span className="pl-12 text-xs leading-5 text-slate-500 md:pl-0 md:line-clamp-2">{message.message}</span>
+                        <span className="flex items-center gap-1.5 pl-12 text-xs text-slate-500 md:pl-0"><Clock3 className="h-3.5 w-3.5 text-slate-400" />{message.createdAt ? new Date(message.createdAt).toLocaleString() : '—'}</span>
+                        <span className="pl-12 md:pl-0"><span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${successful ? 'bg-emerald-50 text-emerald-700' : isFailedStatus(message.status) ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>{message.status}</span></span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
-        {/* Messages Content */}
-        <div className="space-y-6">
-          {/* Inbox Messages Grid */}
-          {isLoading ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <div className="loading-spinner" aria-hidden="true" />
-              <p className="mt-4 text-gray-600">Loading messages...</p>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <p className="text-gray-600">No messages</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedMessages.map((message) => (
-                <button
-                  key={message.id}
-                  onClick={() => handleSelectMessage(message)}
-                  className="text-left bg-white rounded-lg shadow hover:shadow-lg p-6 border-l-4 border-blue-600 transition-all"
-                >
-                  {/* Header with read indicator */}
-                  <div className="flex items-start justify-between mb-4">
-                    <h3 className="text-lg font-bold text-blue-600 flex-1">
-                      {message.subject || 'No subject'}
-                    </h3>
-                    <span className={`ml-2 rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${getDeliveryStatusStyle(getDeliveryStatus(message))}`}>
-                      {getDeliveryStatus(message)}
-                    </span>
-                    {!message.isRead && (
-                      <span className="w-3 h-3 bg-blue-600 rounded-full flex-shrink-0 ml-2 mt-1"></span>
-                    )}
-                  </div>
-
-                  {/* Sender Info */}
-                  <div className="mb-4 pb-4 border-b border-gray-200">
-                    <div className="text-xs text-gray-600 mb-1">From</div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {message.sender?.firstName} {message.sender?.lastName}
-                    </div>
-                  </div>
-
-                  {/* Message preview */}
-                  <div className="mb-4 pb-4 border-b border-gray-200">
-                    <div className="text-xs text-gray-600 mb-2">Message</div>
-                    <p className="text-sm text-gray-700 line-clamp-3">
-                      {message.content}
-                    </p>
-                  </div>
-
-                  {/* Timestamp */}
-                  <div className="text-xs text-gray-500">
-                    {new Date(message.createdAt || '').toLocaleString()}
-                  </div>
+        {selectedSms && tab === 'messages' && (
+          <div className="fixed inset-0 z-[60] flex justify-end bg-slate-950/40 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedSms(null) }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="reminder-detail-title" className="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+              <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-800"><Smartphone className="h-5 w-5" /></span>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal-700">{getReminderType(selectedSms.message)}</p>
+                  <h2 id="reminder-detail-title" className="truncate text-base font-bold text-slate-900">Reminder details</h2>
+                </div>
+                <button type="button" onClick={() => setSelectedSms(null)} className="ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-100" aria-label="Close message details" title="Close message details">
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close</span>
                 </button>
-              ))}
-            </div>
-          )}
-          {messages.length > 0 && <Pagination currentPage={currentPage} totalItems={messages.length} onPageChange={setCurrentPage} />}
-
-          {/* Message Detail View */}
-          {selectedMessage && (
-            <div className="bg-white rounded-lg shadow p-8">
-              <div className="mb-6 pb-6 border-b border-gray-200">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                  {selectedMessage.subject || 'No subject'}
-                </h2>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <span className="font-medium">
-                    From: {selectedMessage.sender?.firstName}{' '}
-                    {selectedMessage.sender?.lastName}
-                  </span>
-                  <span>•</span>
-                  <span>{new Date(selectedMessage.createdAt || '').toLocaleString()}</span>
-                  {!selectedMessage.isRead && (
-                    <>
-                      <span>•</span>
-                      <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">Unread</span>
-                    </>
-                  )}
+              </header>
+              <div className="space-y-5 p-5 sm:p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recipient</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">{selectedSms.recipientUser ? getUserName(selectedSms.recipientUser) : 'Tenant'}</p>
+                    <p className="mt-0.5 text-sm text-slate-500">{selectedSms.phoneNumber}</p>
+                  </div>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${isSuccessfulStatus(String(selectedSms.status || '')) ? 'bg-emerald-50 text-emerald-700' : isFailedStatus(String(selectedSms.status || '')) ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>{selectedSms.status}</span>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Message content</p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-800">{selectedSms.message}</p>
+                </div>
+                {selectedSms.errorMessage && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-rose-700">Delivery issue</p><p className="mt-2 text-sm leading-5 text-rose-900">{selectedSms.errorMessage}</p></div>}
+                <div className="grid gap-4 rounded-xl border border-slate-200 p-4 sm:grid-cols-2">
+                  <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Date sent</p><p className="mt-1.5 text-xs font-medium text-slate-700">{selectedSms.createdAt ? new Date(selectedSms.createdAt).toLocaleString() : 'Time unavailable'}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Delivery status</p><p className="mt-1.5 text-xs font-medium capitalize text-slate-700">{selectedSms.status}</p></div>
+                  {selectedSms.providerMessageId && <div className="sm:col-span-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Provider reference</p><p className="mt-1.5 break-all text-xs font-medium text-slate-700">{selectedSms.providerMessageId}</p></div>}
                 </div>
               </div>
-              <div className="prose max-w-none">
-                <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {selectedMessage.content}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedMessage(null)}
-                className="back-action mt-6"
-              >
-                Back to Inbox
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+            </section>
+          </div>
+        )}
+      </main>
     </ProtectedRoute>
   )
 }

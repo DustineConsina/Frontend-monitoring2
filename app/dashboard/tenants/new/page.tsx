@@ -6,20 +6,29 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 
+const FIXED_BUSINESS_ADDRESS = 'Pier 2, Zone 4, Bulan Sorsogon'
+
+const formatBusinessPermitNumber = (value: string) => {
+  const digitsOnly = value.replace(/\D/g, '').slice(0, 12)
+  return digitsOnly.match(/.{1,4}/g)?.join('-') || ''
+}
+
 export default function NewTenantPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     firstName: '',
+    middleName: '',
     lastName: '',
+    suffix: '',
     email: '',
     contactNumber: '',
     address: '',
     businessName: '',
     contactPerson: '',
-    businessType: '',
-    businessAddress: '',
+    businessAddress: FIXED_BUSINESS_ADDRESS,
     businessPermitNumber: '',
   })
   const [debugInfo, setDebugInfo] = useState<string | null>(null)
@@ -35,7 +44,6 @@ export default function NewTenantPage() {
       contactNumber: 'Contact Number',
       contactPerson: 'Contact Person',
       businessName: 'Business Name',
-      businessType: 'Business Type',
       businessAddress: 'Business Address',
       address: 'Residential Address',
       businessPermitNumber: 'Business Permit Number',
@@ -58,19 +66,23 @@ export default function NewTenantPage() {
     setIsLoading(true)
 
     try {
-      const qrAccessCode = String(Math.floor(10000000 + Math.random() * 90000000))
-      const { businessPermitNumber, ...tenantFormData } = formData
+      const contactPerson = [formData.firstName, formData.middleName, formData.lastName, formData.suffix].filter(Boolean).join(' ').trim()
       const response = await apiClient.createTenant({
-        ...tenantFormData,
-        business_permit_number: businessPermitNumber,
-        qr_access_code: qrAccessCode,
-        role: 'TENANT',
+        first_name: formData.firstName,
+        middle_name: formData.middleName,
+        last_name: formData.lastName,
+        email: formData.email,
+        contact_number: formData.contactNumber,
+        address: formData.address,
+        business_name: formData.businessName,
+        contact_person: contactPerson,
+        business_address: FIXED_BUSINESS_ADDRESS,
+        business_permit_number: formatBusinessPermitNumber(formData.businessPermitNumber),
       })
       
-      console.log('Tenant created successfully:', response)
-      setSuccessMessage(null)
+      setSuccessMessage('Tenant created successfully. This password works for login and QR scans; share it now because it will not be shown again.')
+      setTemporaryPassword(response.data?.temporaryPassword || response.data?.temporary_password || null)
       setIsLoading(false)
-      window.location.replace('/dashboard/tenants')
       return
     } catch (err: any) {
       console.error('Error creating tenant:', err)
@@ -83,14 +95,21 @@ export default function NewTenantPage() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const value = e.target.name === 'contactNumber'
-      ? e.target.value.replace(/\D/g, '').slice(0, 11)
-      : e.target.value
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+
+    let nextValue = value
+    if (name === 'contactNumber') {
+      nextValue = value.replace(/\D/g, '').slice(0, 11)
+    } else if (name === 'businessPermitNumber') {
+      nextValue = formatBusinessPermitNumber(value)
+    } else if (name === 'businessAddress') {
+      nextValue = FIXED_BUSINESS_ADDRESS
+    }
 
     setFormData({
       ...formData,
-      [e.target.name]: value,
+      [name]: nextValue,
     })
   }
 
@@ -118,7 +137,7 @@ export default function NewTenantPage() {
             {/* Personal Information */}
             <div className="form-section">
               <h3 className="form-section-title">Personal Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     First Name <span className="text-red-500">*</span>
@@ -136,6 +155,20 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Middle Name / Initial
+                  </label>
+                  <input
+                    type="text"
+                    name="middleName"
+                    value={formData.middleName}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    placeholder="e.g., A."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Last Name <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -147,6 +180,26 @@ export default function NewTenantPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="Dela Cruz"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Suffix
+                  </label>
+                  <select
+                    name="suffix"
+                    value={formData.suffix}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  >
+                    <option value="">None</option>
+                    <option value="Jr.">Jr.</option>
+                    <option value="Sr.">Sr.</option>
+                    <option value="II">II</option>
+                    <option value="III">III</option>
+                    <option value="IV">IV</option>
+                    <option value="V">V</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -227,21 +280,6 @@ export default function NewTenantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Type <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="businessType"
-                    value={formData.businessType}
-                    onChange={handleChange}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder="e.g., Retail, Wholesale, Service"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Business Permit Number <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -250,8 +288,10 @@ export default function NewTenantPage() {
                     value={formData.businessPermitNumber}
                     onChange={handleChange}
                     required
+                    inputMode="numeric"
+                    maxLength={14}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    placeholder="Enter business permit number"
+                    placeholder="1234-5678-9012"
                   />
                 </div>
               </div>
@@ -283,8 +323,9 @@ export default function NewTenantPage() {
                   value={formData.businessAddress}
                   onChange={handleChange}
                   required
+                  readOnly
                   rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none bg-gray-50"
                   placeholder="Your business address..."
                 />
               </div>
@@ -313,9 +354,11 @@ export default function NewTenantPage() {
 
         {/* Success Message */}
         {successMessage && (
-          <div className="fixed inset-0 flex items-center justify-center z-50">
-            <div className="bg-green-100 border border-green-400 text-green-700 px-6 py-4 rounded-lg shadow-lg max-w-sm">
-              {successMessage}
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-slate-900/40 p-4">
+            <div className="w-full max-w-sm rounded-xl border border-green-200 bg-white p-6 text-center text-green-800 shadow-xl">
+              <p>{successMessage}</p>
+              {temporaryPassword && <p className="my-4 rounded-lg bg-slate-100 p-4 font-mono text-3xl font-bold tracking-[0.25em] text-slate-900">{temporaryPassword}</p>}
+              <Link href="/dashboard/tenants" className="inline-flex rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white">Done</Link>
             </div>
           </div>
         )}

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
+import { formatCalendarDate } from '@/lib/date-format'
 
 export default function ContractQRPage() {
   const params = useParams()
@@ -71,9 +72,7 @@ export default function ContractQRPage() {
   const formatDate = (dateInput: any): string => {
     try {
       if (!dateInput) return 'N/A'
-      const date = new Date(dateInput)
-      if (isNaN(date.getTime())) return 'Invalid Date'
-      return date.toLocaleDateString()
+      return formatCalendarDate(dateInput)
     } catch (e) {
       return 'Invalid Date'
     }

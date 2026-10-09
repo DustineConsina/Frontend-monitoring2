@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
+import Pagination from '@/components/Pagination'
 
 interface AuditLog {
   id: number
@@ -14,10 +15,10 @@ interface AuditLog {
   model_id?: number | null
   modelId?: number | null
   description: string
-  old_values?: any
-  oldValues?: any
-  new_values?: any
-  newValues?: any
+  old_values?: Record<string, unknown> | string | null
+  oldValues?: Record<string, unknown> | string | null
+  new_values?: Record<string, unknown> | string | null
+  newValues?: Record<string, unknown> | string | null
   ip_address?: string | null
   ipAddress?: string | null
   created_at?: string
@@ -30,6 +31,22 @@ interface AuditLog {
   }
 }
 
+function parseAuditValues(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return {}
+
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -39,6 +56,7 @@ export default function AuditLogsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
     // Initial load
@@ -59,9 +77,9 @@ export default function AuditLogsPage() {
         
         setLogs(Array.isArray(logsData) ? logsData : [])
         setError(null)
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('❌ Audit Logs Error:', err)
-        setError(err.message || 'Failed to load audit logs')
+        setError(getErrorMessage(err, 'Failed to load audit logs'))
         setLogs([])
       } finally {
         setIsLoading(false)
@@ -69,6 +87,11 @@ export default function AuditLogsPage() {
     }
     
     initialFetch()
+  }, [])
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search).get('search')
+    if (query) setSearchTerm(query)
   }, [])
 
   const fetchLogs = async () => {
@@ -79,8 +102,8 @@ export default function AuditLogsPage() {
       const logsData = response.data?.auditLogs || response.data?.audit_logs || []
       setLogs(Array.isArray(logsData) ? logsData : [])
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load audit logs')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load audit logs'))
       setLogs([])
     } finally {
       setIsRefreshing(false)
@@ -92,10 +115,17 @@ export default function AuditLogsPage() {
       const matchesAction = filterAction === 'all' || log.action.toLowerCase() === filterAction.toLowerCase()
       const entityType = log.modelType || log.model_type || 'Unknown'
       const matchesEntity = filterEntity === 'all' || entityType === filterEntity
-      const matchesSearch =
-        log.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (log.user?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (log.user?.email || '').toLowerCase().includes(searchTerm.toLowerCase())
+      const searchValue = searchTerm.toLowerCase()
+      const searchableText = [
+        log.description,
+        log.user?.name,
+        log.user?.email,
+        log.modelId,
+        log.model_id,
+        log.modelType,
+        log.model_type,
+      ].join(' ').toLowerCase()
+      const matchesSearch = searchableText.includes(searchValue)
       return matchesAction && matchesEntity && matchesSearch
     })
     .sort((a, b) => {
@@ -107,19 +137,12 @@ export default function AuditLogsPage() {
   // Get unique actions and entity types for filters
   const uniqueActions = Array.from(new Set(logs.map((log) => log.action).filter(Boolean)))
   const uniqueEntities = Array.from(new Set(logs.map((log) => log.modelType || log.model_type).filter(Boolean)))
+  const paginatedLogs = filteredLogs.slice((currentPage - 1) * 10, currentPage * 10)
 
   const getActionBadge = (action: string) => {
     const colors: Record<string, string> = {
-      create: 'bg-green-100 text-green-800',
-      update: 'bg-blue-100 text-blue-800',
-      delete: 'bg-red-100 text-red-800',
-      view: 'bg-gray-100 text-gray-800',
-      system: 'bg-purple-100 text-purple-800',
-      CREATE: 'bg-green-100 text-green-800',
-      UPDATE: 'bg-blue-100 text-blue-800',
-      DELETE: 'bg-red-100 text-red-800',
-      VIEW: 'bg-gray-100 text-gray-800',
-      SYSTEM: 'bg-purple-100 text-purple-800',
+      create: 'status-badge status-active', update: 'status-badge status-pending', delete: 'status-badge status-terminated', view: 'status-badge status-default', system: 'status-badge status-for-renewal',
+      CREATE: 'status-badge status-active', UPDATE: 'status-badge status-pending', DELETE: 'status-badge status-terminated', VIEW: 'status-badge status-default', SYSTEM: 'status-badge status-for-renewal',
     }
     return colors[action] || 'bg-gray-100 text-gray-800'
   }
@@ -127,8 +150,8 @@ export default function AuditLogsPage() {
   const getEntityBadge = (entity: string) => {
     const colors: Record<string, string> = {
       Contract: 'bg-indigo-100 text-indigo-800',
-      Payment: 'bg-green-100 text-green-800',
-      Tenant: 'bg-orange-100 text-orange-800',
+      Payment: 'status-badge status-paid',
+      Tenant: 'status-badge status-maintenance',
       RentalSpace: 'bg-cyan-100 text-cyan-800',
       User: 'bg-violet-100 text-violet-800',
       Report: 'bg-yellow-100 text-yellow-800',
@@ -244,7 +267,7 @@ export default function AuditLogsPage() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-md border border-[#e8eaf1] bg-white divide-y divide-[#eef0f5]">
-            {filteredLogs.map((log) => (
+            {paginatedLogs.map((log) => (
               <div key={log.id} className="grid grid-cols-1 gap-5 px-5 py-5 transition-colors hover:bg-[#fafaff] lg:grid-cols-[180px_150px_minmax(0,1fr)_220px] lg:items-start">
                 {/* Header with timestamp and badges */}
                 <div className="lg:border-r lg:border-[#eef0f5] lg:pr-4">
@@ -282,19 +305,19 @@ export default function AuditLogsPage() {
                 </div>
 
                 {/* Changes Details */}
-                {(log.oldValues || log.old_values) && Object.keys(log.oldValues || log.old_values || {}).length > 0 && (
+                {Object.keys(parseAuditValues(log.oldValues || log.old_values)).length > 0 && (
                   <details className="text-xs text-gray-600 cursor-pointer">
                     <summary className="font-semibold hover:text-gray-900 mb-3">View changes</summary>
                     <div className="mt-3 p-3 bg-gray-50 rounded border border-gray-200 space-y-2 max-h-48 overflow-y-auto">
-                      {Object.entries(log.oldValues || log.old_values || {})
-                        .filter(([key, oldValue]: [string, any]) => {
-                          const newValue = (log.newValues || log.new_values)?.[key]
-                          return String(oldValue) !== String(newValue)
+                      {Object.entries(parseAuditValues(log.oldValues || log.old_values))
+                        .filter(([key, oldValue]) => {
+                          const newValue = parseAuditValues(log.newValues || log.new_values)[key]
+                          return JSON.stringify(oldValue) !== JSON.stringify(newValue)
                         })
-                        .map(([key, oldValue]: [string, any]) => {
-                          const newValue = (log.newValues || log.new_values)?.[key]
-                          const displayOld = oldValue === null ? '(empty)' : String(oldValue)
-                          const displayNew = newValue === null ? '(empty)' : String(newValue)
+                        .map(([key, oldValue]) => {
+                          const newValue = parseAuditValues(log.newValues || log.new_values)[key]
+                          const displayOld = oldValue === null || oldValue === undefined ? '(empty)' : String(oldValue)
+                          const displayNew = newValue === null || newValue === undefined ? '(empty)' : String(newValue)
 
                           return (
                             <div key={key} className="py-1 border-b border-gray-200 last:border-0">
@@ -314,6 +337,7 @@ export default function AuditLogsPage() {
             ))}
           </div>
         )}
+        {!isLoading && <Pagination currentPage={currentPage} totalItems={filteredLogs.length} onPageChange={setCurrentPage} hidePageNumbers />}
       </div>
     </ProtectedRoute>
   )

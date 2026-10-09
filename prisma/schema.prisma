@@ -73,6 +73,7 @@ enum SpaceStatus {
   AVAILABLE
   OCCUPIED
   MAINTENANCE
+  INACTIVE
 }
 
 // Contract Model

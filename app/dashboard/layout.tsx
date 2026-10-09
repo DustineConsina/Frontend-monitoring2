@@ -7,7 +7,8 @@ import { useLoading } from '@/contexts/LoadingContext'
 import { PFDALogo } from '@/components/PFDALogo'
 import QRScannerModal from '@/components/QRScannerModal'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, Menu, ScanLine, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Bell, BellRing, CheckCheck, CircleCheck, CreditCard, FileText, Inbox, Menu, ScanLine, X } from 'lucide-react'
 import apiClient from '@/lib/api-client'
 
 interface HeaderNotification {
@@ -88,25 +89,50 @@ const sortNotifications = (items: HeaderNotification[]) => [...items].sort((a, b
   return new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
 })
 
+const getNotificationCategory = (notification: HeaderNotification) => {
+  const content = `${notification.type} ${notification.title} ${notification.message}`.toLowerCase()
+  if (content.includes('payment') || content.includes('overdue') || content.includes('due')) {
+    return { label: 'Payment', icon: CreditCard, color: 'bg-amber-50 text-amber-700 ring-amber-100' }
+  }
+  if (content.includes('contract') || content.includes('renewal') || content.includes('expir')) {
+    return { label: 'Contract', icon: FileText, color: 'bg-sky-50 text-sky-700 ring-sky-100' }
+  }
+  return { label: 'Update', icon: BellRing, color: 'bg-teal-50 text-teal-700 ring-teal-100' }
+}
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const router = useRouter()
   const { user, logout } = useAuth()
   const { setIsLoading } = useLoading()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all')
   const [notifications, setNotifications] = useState<HeaderNotification[]>([])
   const [selectedNotification, setSelectedNotification] = useState<HeaderNotification | null>(null)
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false)
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(true)
   const [notificationError, setNotificationError] = useState('')
   const [visibleNotificationCount, setVisibleNotificationCount] = useState(NOTIFICATION_PAGE_SIZE)
+  const [unreadComplaintCount, setUnreadComplaintCount] = useState(0)
   const seenNotificationIds = useRef<Set<string>>(new Set())
-  const reconnectAttemptsRef = useRef(0)
-  const streamUnavailableRef = useRef(false)
+
+  useEffect(() => {
+    if (user?.role?.toUpperCase() === 'TENANT') {
+      router.replace('/tenant/dashboard')
+    }
+  }, [router, user?.role])
+
+  useEffect(() => {
+    setIsSidebarOpen(false)
+    setIsNotificationsOpen(false)
+    setSelectedNotification(null)
+    setIsQrScannerOpen(false)
+  }, [pathname])
 
   const unreadNotifications = useMemo(
     () => notifications.filter((notification) => !notification.isRead),
@@ -114,9 +140,12 @@ export default function DashboardLayout({
   )
 
   const visibleNotifications = useMemo(
-    () => notifications.slice(0, visibleNotificationCount),
-    [notifications, visibleNotificationCount],
+    () => notifications
+      .filter((notification) => notificationFilter === 'all' || !notification.isRead)
+      .slice(0, visibleNotificationCount),
+    [notifications, notificationFilter, visibleNotificationCount],
   )
+  const filteredNotificationCount = notificationFilter === 'unread' ? unreadNotifications.length : notifications.length
 
   const applyNotificationSet = useCallback((incoming: Array<Record<string, unknown>>) => {
     const normalized = incoming.map((notification) => normalizeNotification(notification))
@@ -127,7 +156,11 @@ export default function DashboardLayout({
       normalized.forEach((notification) => {
         const existing = currentMap.get(notification.id)
         if (existing) {
-          currentMap.set(notification.id, { ...existing, ...notification })
+          currentMap.set(notification.id, {
+            ...existing,
+            ...notification,
+            isRead: existing.isRead || notification.isRead,
+          })
           return
         }
         currentMap.set(notification.id, notification)
@@ -169,6 +202,20 @@ export default function DashboardLayout({
     }
   }, [applyNotificationSet, user?.id])
 
+  const loadUnreadComplaintCount = useCallback(async () => {
+    if (!user?.id || !['ADMIN', 'STAFF'].includes(user.role?.toUpperCase() || '')) {
+      setUnreadComplaintCount(0)
+      return
+    }
+
+    try {
+      const response = await apiClient.getUnreadComplaintCount()
+      setUnreadComplaintCount(Number(response?.count ?? response?.data?.count ?? 0))
+    } catch {
+      setUnreadComplaintCount(0)
+    }
+  }, [user?.id, user?.role])
+
   useEffect(() => {
     const loadInitialNotifications = async () => {
       await loadNotifications(false)
@@ -187,94 +234,16 @@ export default function DashboardLayout({
   }, [loadNotifications])
 
   useEffect(() => {
+    void loadUnreadComplaintCount()
+    const interval = window.setInterval(() => void loadUnreadComplaintCount(), 15000)
+    return () => window.clearInterval(interval)
+  }, [loadUnreadComplaintCount])
+
+  useEffect(() => {
     if (!user?.id) {
       setNotifications([])
       setIsNotificationsLoading(false)
-      reconnectAttemptsRef.current = 0
-      streamUnavailableRef.current = false
       return
-    }
-
-    let eventSource: EventSource | null = null
-    let reconnectTimer: number | undefined
-
-    const connectStream = () => {
-      if (streamUnavailableRef.current) {
-        return
-      }
-
-      try {
-        const streamUrl = apiClient.buildNotificationStreamUrl()
-        if (!streamUrl) return
-
-        eventSource = new EventSource(streamUrl)
-
-        eventSource.onopen = () => {
-          reconnectAttemptsRef.current = 0
-          streamUnavailableRef.current = false
-          setNotificationError('')
-        }
-
-        eventSource.onmessage = (event) => {
-          const rawMessage = event.data
-          if (!rawMessage || rawMessage === 'ping') return
-
-          try {
-            const payload = JSON.parse(rawMessage)
-            const notificationData = payload?.notification ?? payload?.data ?? payload
-            if (!notificationData || !notificationData.id) return
-
-            const notification = normalizeNotification(notificationData)
-            setNotifications((current) => {
-              const next = current.some((item) => item.id === notification.id)
-                ? current.map((item) => (item.id === notification.id ? { ...item, ...notification } : item))
-                : [notification, ...current]
-              return sortNotifications(next)
-            })
-            seenNotificationIds.current.add(notification.id)
-            setNotificationError('')
-          } catch {
-            setNotificationError('An incoming notification could not be processed.')
-          }
-        }
-
-        eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close()
-          }
-
-          const nextAttempt = reconnectAttemptsRef.current + 1
-          reconnectAttemptsRef.current = nextAttempt
-
-          if (nextAttempt <= 3) {
-            setNotificationError('Real-time connection lost. Reconnecting…')
-            if (reconnectTimer) {
-              window.clearTimeout(reconnectTimer)
-            }
-            reconnectTimer = window.setTimeout(() => {
-              connectStream()
-            }, 4000)
-            return
-          }
-
-          streamUnavailableRef.current = true
-          setNotificationError('Real-time notifications are unavailable right now. We will keep polling for new updates.')
-        }
-      } catch {
-        streamUnavailableRef.current = true
-        setNotificationError('Real-time notifications are unavailable. Polling for updates.')
-      }
-    }
-
-    connectStream()
-
-    return () => {
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer)
-      }
-      if (eventSource) {
-        eventSource.close()
-      }
     }
   }, [user?.id])
 
@@ -332,13 +301,15 @@ export default function DashboardLayout({
     }
   }
 
-  let navigation = []
+  if (user?.role?.toUpperCase() === 'TENANT') return null
+
+  let navigation: Array<{ name: string; href: string }> = []
 
   if (user?.role && user.role.toUpperCase() === 'CASHIER') {
     navigation = [
       { name: 'Collection Dashboard', href: '/dashboard/cashier' },
       { name: 'Payments', href: '/dashboard/payments' },
-      { name: 'Messages', href: '/dashboard/messages' },
+      { name: 'Archive', href: '/dashboard/archive' },
     ]
   } else if (user?.role && (user.role.toUpperCase() === 'ADMIN' || user.role.toUpperCase() === 'STAFF')) {
     navigation = [
@@ -347,30 +318,26 @@ export default function DashboardLayout({
       { name: 'Payments', href: '/dashboard/payments' },
       { name: 'Tenants', href: '/dashboard/tenants' },
       { name: 'Rental Spaces', href: '/dashboard/spaces' },
-      { name: 'Messages', href: '/dashboard/messages' },
+      { name: 'Messages & Complaints', href: '/dashboard/messages' },
       { name: 'Reports', href: '/dashboard/reports' },
+      { name: 'Archive', href: '/dashboard/archive' },
       { name: 'Audit Logs', href: '/dashboard/audit-logs' },
     ]
   } else {
-    navigation = [
-      { name: 'Dashboard', href: '/dashboard' },
-      { name: 'My Contracts', href: '/dashboard/contracts' },
-      { name: 'Payments', href: '/dashboard/payments' },
-      { name: 'Messages', href: '/dashboard/messages' },
-    ]
+    navigation = []
   }
 
   return (
-    <div className="flex h-screen bg-[#f3f5f8] text-[#172b35]">
+    <div className="flex h-screen bg-[#eef3f2] text-[#142b32]">
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-[#214d56] bg-[linear-gradient(180deg,#123f49_0%,#0d2f38_100%)] shadow-[18px_0_40px_rgba(15,34,43,0.18)] transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static ${
+        className={`fixed inset-y-0 left-0 z-50 w-[17rem] border-r border-[#214d56] bg-[linear-gradient(180deg,#102f36_0%,#091f25_100%)] shadow-[18px_0_40px_rgba(15,34,43,0.18)] transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex h-full flex-col">
-          <div className="border-b border-[#2d5961] px-4 py-5">
+          <div className="border-b border-[#2d5961] px-5 py-6">
             <Link href="/dashboard" className="flex items-center gap-3 transition-all duration-200 hover:opacity-95">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/95 p-1 shadow-[0_10px_18px_rgba(0,0,0,0.12)]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/95 p-1 shadow-[0_10px_18px_rgba(0,0,0,0.12)]">
                 <PFDALogo className="h-10 w-10" size={40} />
               </div>
               <div>
@@ -380,23 +347,25 @@ export default function DashboardLayout({
             </Link>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-3 py-6">
+          <nav className="flex-1 overflow-y-auto px-3 py-7">
             <div className="space-y-1.5">
               <div className="mb-3 px-3 text-[9px] uppercase tracking-[0.18em] text-[#8fb0b5]">Menu</div>
               {navigation.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+                const isActive = item.href === '/dashboard'
+                  ? pathname === item.href
+                  : pathname === item.href || pathname.startsWith(item.href + '/')
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
-                    className={`flex items-center rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-all duration-200 ${
+                    className={`flex items-center rounded-lg px-3 py-2.5 text-[13px] font-semibold transition-all duration-200 ${
                       isActive
-                        ? 'bg-white text-[#0b4a54] shadow-[0_10px_18px_rgba(0,0,0,0.10)]'
-                        : 'text-[#d5e4e7] hover:bg-[#1d4e5a] hover:text-white'
+                        ? 'bg-[#e4f3f1] text-[#0b4a54] shadow-[0_8px_18px_rgba(0,0,0,0.12)]'
+                        : 'text-[#c6d8da] hover:bg-[#183f47] hover:text-white'
                     }`}
                     onClick={() => setIsSidebarOpen(false)}
                   >
-                    <span>{item.name}</span>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3"><span>{item.name}</span>{item.href === '/dashboard/messages' && unreadComplaintCount > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#d9535a] px-1.5 text-[10px] font-bold text-white" aria-label={`${unreadComplaintCount} unread complaints`}>{unreadComplaintCount > 99 ? '99+' : unreadComplaintCount}</span>}</span>
                   </Link>
                 )
               })}
@@ -426,7 +395,7 @@ export default function DashboardLayout({
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-16 items-center border-b border-[#dfe6eb] bg-white/90 px-4 shadow-[0_4px_14px_rgba(18,34,43,0.04)] backdrop-blur-sm lg:px-8">
+        <header className="relative z-50 flex min-h-16 shrink-0 items-center border-b border-[#d5e1df] bg-white px-4 shadow-[0_8px_24px_rgba(18,34,43,0.08)] lg:px-8">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className="mr-4 rounded-lg border border-[#e5e9ef] bg-[#f8fafc] p-2 text-[#6c7b8c] transition hover:bg-[#edf2f7] lg:hidden"
@@ -452,7 +421,9 @@ export default function DashboardLayout({
               title="Notifications"
               aria-label="Notifications"
               onClick={() => setIsNotificationsOpen((open) => !open)}
-              className="relative rounded-xl border border-[#e7edf3] bg-[#f7fafc] p-2.5 transition hover:border-[#cfe4e9] hover:bg-[#edf9fb] hover:text-[#0a7d8d]"
+              aria-expanded={isNotificationsOpen}
+              aria-haspopup="dialog"
+              className={`relative rounded-xl border p-2.5 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-100 ${isNotificationsOpen ? 'border-teal-200 bg-teal-50 text-teal-800' : 'border-[#e7edf3] bg-[#f7fafc] text-[#7d8699] hover:border-[#cfe4e9] hover:bg-[#edf9fb] hover:text-[#0a7d8d]'}`}
             >
               <Bell className="h-5 w-5" />
               {unreadNotifications.length > 0 && (
@@ -463,94 +434,162 @@ export default function DashboardLayout({
             </button>
 
             {isNotificationsOpen && (
-              <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-[#e5eaf1] bg-white shadow-[0_18px_45px_rgba(20,38,48,0.14)]">
-                <div className="flex items-center justify-between border-b border-[#eef2f5] px-4 py-3">
-                  <div>
-                    <h2 className="text-sm font-bold text-[#354057]">Notifications</h2>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#9aa1b3]">
-                      {unreadNotifications.length} unread
-                    </p>
+              <section
+                role="dialog"
+                aria-label="Notifications"
+                className="absolute right-0 top-[calc(100%+0.75rem)] z-[100] flex max-h-[min(38rem,calc(100dvh-5.5rem))] w-[min(27rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-[0_24px_70px_rgba(10,35,42,0.24)] ring-1 ring-black/5"
+              >
+                <div className="relative overflow-hidden bg-[linear-gradient(125deg,#102f36_0%,#0b5963_62%,#12817f_100%)] px-5 pb-5 pt-4 text-white">
+                  <div className="pointer-events-none absolute -right-7 -top-14 h-40 w-40 rounded-full border border-white/10" />
+                  <div className="pointer-events-none absolute -bottom-24 right-20 h-36 w-36 rounded-full border border-white/10" />
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
+                          <BellRing className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-100">Activity center</p>
+                          <h2 className="mt-0.5 text-lg font-bold tracking-tight">Notifications</h2>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs text-white/75">
+                        {unreadNotifications.length === 0 ? 'Everything is up to date.' : `${unreadNotifications.length} unread item${unreadNotifications.length === 1 ? '' : 's'} need your attention.`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsNotificationsOpen(false)}
+                      aria-label="Close notifications"
+                      className="rounded-lg p-2 text-white/75 transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
+                  <div className="inline-flex rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Notification filter">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={notificationFilter === 'all'}
+                      onClick={() => { setNotificationFilter('all'); setVisibleNotificationCount(NOTIFICATION_PAGE_SIZE) }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${notificationFilter === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      All <span className="ml-1 text-[10px] opacity-70">{notifications.length}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={notificationFilter === 'unread'}
+                      onClick={() => { setNotificationFilter('unread'); setVisibleNotificationCount(NOTIFICATION_PAGE_SIZE) }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${notificationFilter === 'unread' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Unread <span className={`ml-1 text-[10px] ${unreadNotifications.length ? 'text-teal-700' : 'opacity-70'}`}>{unreadNotifications.length}</span>
+                    </button>
                   </div>
                   <button
                     type="button"
-                    onClick={handleMarkAllAsRead}
+                    onClick={() => void handleMarkAllAsRead()}
                     disabled={unreadNotifications.length === 0 || isNotificationsLoading}
-                    className="rounded-md border border-[#dde7ef] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold text-[#0a7d8d] transition hover:bg-[#edf9fb] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] font-semibold text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-300"
                   >
-                    Mark All as Read
+                    <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                    Mark all read
                   </button>
                 </div>
 
                 {notificationError && (
-                  <p className="border-b border-[#eed7d7] bg-[#fff6f6] px-4 py-2 text-xs text-[#b33a35]">{notificationError}</p>
+                  <p role="alert" className="border-b border-rose-100 bg-rose-50 px-4 py-2.5 text-xs font-medium text-rose-700">{notificationError}</p>
                 )}
 
                 {isNotificationsLoading && notifications.length === 0 ? (
-                  <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-[#7d8699]">
+                  <div className="flex min-h-48 items-center justify-center gap-3 px-4 py-8 text-sm text-slate-500">
                     <span className="loading-spinner" aria-hidden="true" />
-                    Loading notifications…
+                    <span>Loading your latest activity…</span>
                   </div>
-                ) : notifications.length === 0 ? (
-                  <div className="px-4 py-8 text-center">
-                    <p className="text-sm font-medium text-[#354057]">No notifications yet</p>
-                    <p className="mt-1 text-xs text-[#9aa1b3]">You’re all caught up.</p>
+                ) : filteredNotificationCount === 0 ? (
+                  <div className="flex min-h-52 flex-col items-center justify-center px-6 py-8 text-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                      <Inbox className="h-6 w-6" aria-hidden="true" />
+                    </span>
+                    <p className="mt-3 text-sm font-bold text-slate-800">{notificationFilter === 'unread' ? 'You’re all caught up' : 'No notifications yet'}</p>
+                    <p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">{notificationFilter === 'unread' ? 'New unread activity will appear here.' : 'When there’s activity to review, you’ll find it here.'}</p>
                   </div>
                 ) : (
-                  <div className="max-h-[26rem] overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-2.5">
                     {visibleNotifications.map((notification) => (
-                      <div
+                      <article
                         key={notification.id}
-                        className={`border-b border-[#f0f1f5] border-l-4 px-4 py-3 transition ${notification.isRead ? 'border-l-transparent bg-[#f7faf9] opacity-75' : 'border-l-[#d28b32] bg-[#fff8ed]'}`}
+                        className={`group relative mb-2 overflow-hidden rounded-xl border p-3.5 transition last:mb-0 ${notification.isRead ? 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm' : 'border-teal-300 bg-teal-50 shadow-[0_4px_14px_rgba(15,118,110,0.12)] ring-1 ring-teal-100 hover:border-teal-400 hover:bg-teal-100/70 hover:shadow-md'}`}
                       >
+                        {!notification.isRead && <span className="absolute inset-y-0 left-0 w-1 bg-teal-600" aria-hidden="true" />}
                         <button
                           type="button"
                           onClick={() => handleNotificationClick(notification)}
-                          className="block w-full text-left"
+                          className="block w-full rounded-lg pl-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <p className={`flex items-center gap-2 text-xs font-bold ${notification.isRead ? 'text-[#70858a]' : 'text-[#17333c]'}`}>
-                              {!notification.isRead && <span className="h-2 w-2 rounded-full bg-[#d28b32]" aria-label="Unread" />}
-                              {notification.title}
-                            </p>
-                            <span className="text-[10px] text-[#9aa1b3]">{formatRelativeTime(notification.createdAt)}</span>
+                          <div className="flex items-start gap-3">
+                            {(() => {
+                              const category = getNotificationCategory(notification)
+                              const CategoryIcon = category.icon
+                              return <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${category.color}`}><CategoryIcon className="h-4 w-4" aria-hidden="true" /></span>
+                            })()}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className={`min-w-0 break-words text-xs leading-5 ${notification.isRead ? 'font-semibold text-slate-700' : 'font-extrabold text-teal-950'}`}>{notification.title}</p>
+                                {!notification.isRead && <span className="shrink-0 rounded-full bg-teal-700 px-2 py-0.5 text-[8px] font-extrabold uppercase tracking-[0.12em] text-white">New</span>}
+                              </div>
+                              <p className={`mt-1 line-clamp-2 text-xs leading-5 ${notification.isRead ? 'text-slate-500' : 'font-medium text-teal-900/80'}`}>{notification.message}</p>
+                              <div className="mt-2.5 flex items-center justify-between gap-2">
+                                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">{getNotificationCategory(notification).label}</span>
+                                <span className="text-[10px] font-medium text-slate-400">{formatRelativeTime(notification.createdAt)}</span>
+                              </div>
+                            </div>
                           </div>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#7d8699]">{notification.message}</p>
                         </button>
 
                         {!notification.isRead && (
-                          <div className="mt-2 flex justify-end">
+                          <div className="mt-2.5 flex justify-end border-t border-slate-100 pt-2">
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
                                 void markOneNotificationAsRead(notification)
                               }}
-                              className="rounded-md border border-[#e4e9f2] px-2 py-1 text-[10px] font-semibold text-[#5964c7] hover:bg-[#f5f7ff]"
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-teal-800 transition hover:bg-teal-50"
                             >
-                              Mark as Read
+                              <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                              Mark as read
                             </button>
                           </div>
                         )}
-                      </div>
+                      </article>
                     ))}
 
-                    {notifications.length > visibleNotificationCount && (
+                    {filteredNotificationCount > visibleNotificationCount && (
                       <button
                         type="button"
                         onClick={() => setVisibleNotificationCount((count) => count + NOTIFICATION_PAGE_SIZE)}
-                        className="w-full border-t border-[#eef0f5] bg-[#f9fafc] px-4 py-3 text-xs font-semibold text-[#5964c7] transition hover:bg-[#f1f4ff]"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-teal-800 transition hover:border-teal-200 hover:bg-teal-50"
                       >
-                        Load more notifications
+                        Show more notifications
                       </button>
                     )}
                   </div>
                 )}
-              </div>
+
+                <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2.5 text-[10px] text-slate-400">
+                  <span>Updates refresh automatically</span>
+                  <span>{filteredNotificationCount} {notificationFilter === 'unread' ? 'unread' : 'total'}</span>
+                </div>
+              </section>
             )}
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-[#f4f6f7] p-5 lg:p-8">
+        <main className="relative z-0 flex-1 overflow-y-auto bg-transparent p-5 lg:p-8">
           {children}
         </main>
       </div>
@@ -563,18 +602,18 @@ export default function DashboardLayout({
           aria-labelledby="notification-dialog-title"
           onClick={() => setSelectedNotification(null)}
         >
-          <div className="w-full max-w-md rounded-2xl border border-[#e3e5ee] bg-white shadow-[0_24px_70px_rgba(39,48,80,0.2)]" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between border-b border-[#eef0f5] px-5 py-4">
+          <div className="w-full max-w-sm rounded-xl border border-[#dce6e8] bg-white shadow-[0_20px_55px_rgba(20,38,48,0.2)]" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-[#e8eff1] px-4 py-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#5964c7]">Notification</p>
-                <h2 id="notification-dialog-title" className="mt-1 text-lg font-bold text-[#354057]">{selectedNotification.title}</h2>
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#0a7180]">Notification</p>
+                <h2 id="notification-dialog-title" className="mt-1 text-sm font-bold text-[#17333c]">{selectedNotification.title}</h2>
               </div>
             </div>
-            <div className="px-5 py-6">
-              <p className="text-sm leading-6 text-[#596477]">{selectedNotification.message}</p>
-              {selectedNotification.createdAt && <p className="mt-4 text-xs text-[#9aa1b3]">{new Date(selectedNotification.createdAt).toLocaleString()}</p>}
+            <div className="px-4 py-4">
+              <p className="text-xs leading-5 text-[#596477]">{selectedNotification.message}</p>
+              {selectedNotification.createdAt && <p className="mt-3 text-[10px] text-[#9aa1b3]">{new Date(selectedNotification.createdAt).toLocaleString()}</p>}
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#eef0f5] px-5 py-3">
+            <div className="flex justify-end gap-2 border-t border-[#e8eff1] px-4 py-3">
               {!selectedNotification.isRead && (
                 <button
                   type="button"
@@ -582,12 +621,12 @@ export default function DashboardLayout({
                     void markOneNotificationAsRead(selectedNotification)
                     setSelectedNotification(null)
                   }}
-                  className="rounded-md border border-[#dfe5ef] bg-white px-4 py-2 text-xs font-semibold text-[#5964c7] hover:bg-[#f5f7ff]"
+                  className="rounded-md border border-[#cfe1e4] bg-white px-3 py-1.5 text-[10px] font-semibold text-[#0a7180] hover:bg-[#edf9fb]"
                 >
                   Mark as Read
                 </button>
               )}
-              <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-md bg-[#5964c7] px-4 py-2 text-xs font-semibold text-white hover:bg-[#4652b5]">Close</button>
+              <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-md bg-[#0a7180] px-3 py-1.5 text-[10px] font-semibold text-white hover:bg-[#075b67]">Close</button>
             </div>
           </div>
         </div>

@@ -435,7 +435,7 @@ export default function NewPaymentPage() {
                     placeholder="Select contract to see amount"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Amount is fixed to the contract's monthly rental. Select a contract above to auto-fill.
+                    Amount is fixed to the contract&apos;s monthly rental. Select a contract above to auto-fill.
                   </p>
                 </div>
 

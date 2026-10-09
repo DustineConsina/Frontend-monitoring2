@@ -1,29 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f5f8;
-  --background-strong: #eaf1f4;
-  --foreground: #172b35;
-  --foreground-soft: #4d5f6d;
+  --background: #eef3f2;
+  --background-strong: #e2eceb;
+  --foreground: #142b32;
+  --foreground-soft: #53676b;
   --panel: #ffffff;
-  --panel-strong: #f8fafc;
-  --panel-border: #dfe6eb;
-  --sidebar: #123f49;
-  --sidebar-alt: #0f313a;
-  --primary: #0a7d8d;
-  --primary-strong: #065d6c;
-  --primary-soft: #e6f4f5;
-  --primary-soft-2: #eef8fb;
-  --accent: #d28b32;
-  --accent-soft: #fff6ea;
-  --success: #2d8a67;
-  --success-soft: #ebfaf4;
-  --warning: #c67a1d;
-  --warning-soft: #fff6ea;
-  --error: #c9535a;
-  --error-soft: #fff1f3;
-  --shadow-soft: 0 18px 45px rgba(20, 38, 48, 0.08);
-  --shadow-card: 0 12px 28px rgba(18, 34, 43, 0.06);
+  --panel-strong: #f5f9f8;
+  --panel-border: #d5e1df;
+  --sidebar: #102f36;
+  --sidebar-alt: #0b242a;
+  --primary: #087f8c;
+  --primary-strong: #075c66;
+  --primary-soft: #e0f1ef;
+  --primary-soft-2: #edf8f6;
+  --accent: #c88b3a;
+  --accent-soft: #fff5e5;
+  --success: #237b5b;
+  --success-soft: #e6f6ee;
+  --warning: #b56e19;
+  --warning-soft: #fff3df;
+  --error: #bd4e59;
+  --error-soft: #fff0f1;
+  --shadow-soft: 0 24px 60px rgba(14, 45, 52, 0.09);
+  --shadow-card: 0 10px 26px rgba(14, 45, 52, 0.06);
 }
 
 @theme inline {
@@ -39,9 +39,9 @@ html {
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(8, 125, 141, 0.10), transparent 26%),
-    radial-gradient(circle at right bottom, rgba(210, 139, 50, 0.08), transparent 24%),
-    linear-gradient(180deg, var(--background) 0%, #edf2f5 100%);
+    radial-gradient(circle at 8% 0%, rgba(8, 127, 140, 0.11), transparent 24%),
+    radial-gradient(circle at 96% 22%, rgba(200, 139, 58, 0.07), transparent 20%),
+    linear-gradient(180deg, #f7faf9 0%, var(--background) 48%, #e8f0ee 100%);
   color: var(--foreground);
   font-family: var(--font-geist-sans), sans-serif;
   transition: background-color 0.2s ease;
@@ -246,6 +246,50 @@ input:not([type='hidden']), select, textarea {
   border-radius: 7px;
   background-color: #ffffff;
   color: #172b35;
+}
+
+/* System-wide visual refresh: quiet surfaces, stronger hierarchy, and a warmer institutional palette. */
+.app-surface,
+.form-shell,
+.modal-shell {
+  border-color: #d5e1df !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.app-surface,
+.form-shell {
+  border-radius: 14px !important;
+}
+
+button,
+a[role="button"],
+.action-primary,
+.action-edit,
+.action-success,
+.action-secondary,
+.action-danger,
+.back-action {
+  border-radius: 9px !important;
+}
+
+table {
+  border: 1px solid #d5e1df;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+table thead th {
+  background: #edf5f3 !important;
+  color: #486168 !important;
+}
+
+table tbody tr {
+  border-bottom: 1px solid #edf2f1;
+}
+
+table tbody tr:last-child {
+  border-bottom: 0;
 }
 
 input:not([type='hidden'])::placeholder, textarea::placeholder {
@@ -776,6 +820,16 @@ label {
   .action-danger:hover { border-color: #a83f3f !important; background: #a83f3f !important; color: #ffffff !important; }
   .action-secondary { border-color: #cbd7da !important; background: #ffffff !important; color: #3f5961 !important; }
   .action-secondary:hover { border-color: #91b4b8 !important; background: #f3f7f7 !important; color: #3f5961 !important; }
+
+  .status-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; line-height: 1.25rem; }
+  .status-available, .status-active, .status-paid, .status-sent { background: #dcfce7 !important; color: #166534 !important; }
+  .status-occupied, .status-renewed, .status-issued { background: #dbeafe !important; color: #1e40af !important; }
+  .status-pending { background: #fef3c7 !important; color: #92400e !important; }
+  .status-maintenance, .status-partial { background: #ffedd5 !important; color: #9a3412 !important; }
+  .status-for-renewal { background: #e0e7ff !important; color: #3730a3 !important; }
+  .status-expired { background: #e2e8f0 !important; color: #475569 !important; }
+  .status-terminated, .status-overdue, .status-cancelled { background: #fee2e2 !important; color: #991b1b !important; }
+  .status-default { background: #f1f5f9 !important; color: #475569 !important; }
 
   .action-primary:disabled,
   .action-edit:disabled,

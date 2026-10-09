@@ -8,7 +8,8 @@ import apiClient from '@/lib/api-client'
 import { Payment } from '@/types'
 import { getPaymentProviders, getProviderValue, PAYMENT_METHODS, requiresPaymentDetails } from '@/lib/payment-methods'
 import Pagination from '@/components/Pagination'
-import { Eye } from 'lucide-react'
+import { Banknote, Clock3, Eye, ReceiptText } from 'lucide-react'
+import { statusColorClass } from '@/lib/status-colors'
 
 function getBillingPeriodLabel(dueDate?: string): string {
   if (!dueDate) return 'N/A'
@@ -193,6 +194,7 @@ export default function PaymentsPage() {
           interestAmount,
           totalAmount,
           amountPaid,
+          paymentDate: p.paymentDate || p.payment_date,
           balance: Math.max(0, totalAmount - amountPaid),
           dueDate: p.dueDate || p.due_date,
           billingPeriodStart: p.billingPeriodStart || p.billing_period_start,
@@ -410,32 +412,38 @@ export default function PaymentsPage() {
 
 
   const getStatusBadge = (status: string) => {
-    const colors = {
-      paid: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      overdue: 'bg-red-100 text-red-800',
-      partial: 'bg-orange-100 text-orange-800',
-      PAID: 'bg-green-100 text-green-800',
-      PENDING: 'bg-yellow-100 text-yellow-800',
-      OVERDUE: 'bg-red-100 text-red-800',
-      PARTIAL: 'bg-orange-100 text-orange-800',
-    }
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return statusColorClass(status)
   }
 
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const summaryMonth = monthFilter || currentMonth
+  const summaryMonthLabel = new Date(`${summaryMonth}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const totalPaid = payments
-    .filter((p) => (p.status || '').toLowerCase() === 'paid')
-    .reduce((sum, p) => sum + parseFloat(String(p.amountPaid || 0)), 0)
+    .filter((p) => {
+      const status = String(p.status || '').toLowerCase().replace(/\s+/g, '_')
+      return ['paid', 'partial', 'partially_paid'].includes(status) && String(p.dueDate || p.due_date || '').slice(0, 7) === summaryMonth
+    })
+    .reduce((sum, p) => {
+      const status = String(p.status || '').toLowerCase().replace(/\s+/g, '_')
+      const amountPaid = Number.parseFloat(String(p.amountPaid || p.amount_paid || 0)) || 0
+      const settledAmount = amountPaid || (status === 'paid' ? Number.parseFloat(String(p.totalAmount || p.total_amount || p.amountDue || p.amount_due || 0)) || 0 : 0)
+      return sum + settledAmount
+    }, 0)
 
   const totalPending = payments
     .filter((p) => {
-      const status = (p.status || '').toLowerCase()
-      return status === 'pending' || status === 'overdue'
+      const status = String(p.status || '').toLowerCase().replace(/\s+/g, '_')
+      return ['pending', 'overdue', 'partial', 'partially_paid'].includes(status) && String(p.dueDate || p.due_date || '').slice(0, 7) === summaryMonth
     })
     .reduce((sum, p) => sum + parseFloat(String(p.balance || 0)), 0)
 
+  const monthlyAmountDue = payments
+    .filter((p) => String(p.dueDate || p.due_date || '').slice(0, 7) === summaryMonth)
+    .reduce((sum, p) => sum + (Number.parseFloat(String(p.totalAmount || p.total_amount || 0)) || 0), 0)
+
   const totalPaymentCount = filteredPayments.length
-  const paginatedPayments = filteredPayments.slice((currentPage - 1) * 15, currentPage * 15)
+  const paginatedPayments = filteredPayments.slice((currentPage - 1) * 10, currentPage * 10)
 
   const searchableContracts = contracts.filter((contract) => {
     const contractNumber = String(contract.contractNumber || contract.contract_number || '').trim()
@@ -457,51 +465,44 @@ export default function PaymentsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Payments</h2>
-            <p className="text-gray-600">Monitor and record rental payments</p>
-          </div>
-          <div className="flex gap-2">
-            {canRecordPayments && (
-              <button
-                type="button"
-                onClick={openRecordModal}
-                title="Record Payment"
-                className="action-success inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2"
-              >
-                + Record Payment
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="rounded-2xl border border-[#d8ece7] bg-[linear-gradient(135deg,#0d5f6d_0%,#0c7d8b_100%)] p-6 text-white shadow-[0_18px_38px_rgba(13,95,109,0.18)]">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d4f3f8]">Total Paid</p>
-              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#e9f9fb]">Settled</span>
+      <div className="space-y-6 pb-8">
+        <header className="relative overflow-hidden rounded-3xl bg-[linear-gradient(118deg,#102f36_0%,#0b5963_58%,#12817f_100%)] p-5 text-white shadow-[0_18px_42px_rgba(13,76,83,0.14)] sm:p-7">
+          <div className="pointer-events-none absolute -right-20 -top-28 h-80 w-80 rounded-full border border-white/10" />
+          <div className="pointer-events-none absolute -bottom-40 right-28 h-72 w-72 rounded-full border border-white/10" />
+          <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-teal-100/80">Payment management</p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Payments</h1>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-white/75">Monitor rental collections, review outstanding balances, and keep payment records up to date.</p>
+              {canRecordPayments && (
+                <button
+                  type="button"
+                  onClick={openRecordModal}
+                  title="Record Payment"
+                  className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-teal-900 shadow-sm transition hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/30"
+                >
+                  <Banknote className="h-4 w-4" aria-hidden="true" />Record payment
+                </button>
+              )}
             </div>
-            <p className="text-3xl font-black tracking-tight">₱{totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          </div>
-          <div className="rounded-2xl border border-[#f1e4c9] bg-[linear-gradient(135deg,#c77d1a_0%,#d9a14b_100%)] p-6 text-white shadow-[0_18px_38px_rgba(199,125,26,0.18)]">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#fff4df]">Total Pending</p>
-              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#fff7ea]">Review</span>
+            <div className="grid gap-2 sm:grid-cols-3 xl:min-w-[570px]">
+              <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/70"><Banknote className="h-3.5 w-3.5 text-teal-200" /> Paid · {summaryMonthLabel}</span>
+                <p className="mt-2 text-xl font-bold tabular-nums">₱{totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="mt-1 text-[10px] leading-4 text-white/65">of ₱{monthlyAmountDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} due</p>
+              </div>
+              <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/70"><Clock3 className="h-3.5 w-3.5 text-amber-200" /> Pending · {summaryMonthLabel}</span>
+                <p className="mt-2 text-xl font-bold tabular-nums">₱{totalPending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+              <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/70"><ReceiptText className="h-3.5 w-3.5 text-sky-200" /> Payments</span>
+                <p className="mt-2 text-xl font-bold tabular-nums">{totalPaymentCount}</p>
+                <p className="mt-1 text-[10px] leading-4 text-white/65">Matching current filters</p>
+              </div>
             </div>
-            <p className="text-3xl font-black tracking-tight">₱{totalPending.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
-          <div className="rounded-2xl border border-[#dfeaf6] bg-[linear-gradient(135deg,#275a8b_0%,#3b79b5_100%)] p-6 text-white shadow-[0_18px_38px_rgba(39,90,139,0.18)]">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#eaf2ff]">Total Payments</p>
-              <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#edf5ff]">Count</span>
-            </div>
-            <p className="text-3xl font-black tracking-tight">{totalPaymentCount}</p>
-          </div>
-        </div>
+        </header>
 
         {/* Filters */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white rounded-lg shadow p-6 border border-gray-100">
@@ -575,12 +576,6 @@ export default function PaymentsPage() {
                 <tbody className="divide-y divide-gray-200">
                   {paginatedPayments.map((payment) => {
                     const contractStatus = payment.contract?.status || 'N/A';
-                    const contractStatusColors = {
-                      active: 'bg-green-100 text-green-800',
-                      terminated: 'bg-red-100 text-red-800',
-                      expired: 'bg-orange-100 text-orange-800',
-                      pending: 'bg-blue-100 text-blue-800'
-                    };
                     const balanceAmount = parseFloat(String(payment.balance || 0));
                     return (
                       <tr key={payment.id} className="hover:bg-gray-50 transition-colors">
@@ -588,7 +583,7 @@ export default function PaymentsPage() {
                           {payment.contract?.contractNumber || payment.contract?.contract_number || 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${contractStatusColors[contractStatus as keyof typeof contractStatusColors] || 'bg-gray-100 text-gray-800'}`}>
+                          <span className={statusColorClass(contractStatus)}>
                             {contractStatus.toUpperCase()}
                           </span>
                         </td>
@@ -642,7 +637,7 @@ export default function PaymentsPage() {
                                 disabled={deletingPaymentId === String(payment.id ?? '')}
                                 className="action-danger rounded-lg border px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed"
                               >
-                                {deletingPaymentId === String(payment.id ?? '') ? 'Deleting...' : 'Delete'}
+                                {deletingPaymentId === String(payment.id ?? '') ? 'Archiving...' : 'Archive'}
                               </button>
                             )}
                           </div>
@@ -672,14 +667,14 @@ export default function PaymentsPage() {
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between border-b border-gray-200 pb-4">
               <div>
-                <h3 className="text-xl font-semibold text-gray-900">Delete Payment</h3>
+                <h3 className="text-xl font-semibold text-gray-900">Archive Payment</h3>
                 <p className="mt-1 text-sm text-gray-500">This action will permanently remove the payment record.</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <p className="text-sm text-gray-700">
-                Are you sure you want to delete <span className="font-semibold">{paymentToDelete.paymentNumber || paymentToDelete.payment_number || 'this payment'}</span>?
+                Are you sure you want to archive <span className="font-semibold">{paymentToDelete.paymentNumber || paymentToDelete.payment_number || 'this payment'}</span>?
               </p>
               <p className="text-xs text-gray-500">
                 This action cannot be undone.
@@ -689,7 +684,7 @@ export default function PaymentsPage() {
             <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
               <button type="button" onClick={() => setShowDeleteModal(false)} disabled={deletingPaymentId !== null} className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button>
               <button type="button" onClick={confirmDeletePayment} disabled={deletingPaymentId !== null} className="action-danger rounded-lg border px-4 py-2 text-sm font-semibold">
-                {deletingPaymentId === String(paymentToDelete.id ?? '') ? 'Deleting...' : 'Delete Payment'}
+                {deletingPaymentId === String(paymentToDelete.id ?? '') ? 'Archiving...' : 'Archive Payment'}
               </button>
             </div>
           </div>

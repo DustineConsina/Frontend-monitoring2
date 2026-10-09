@@ -1,11 +1,17 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
 import { User, RentalSpace } from '@/types'
+import SearchableRentalSpaceSelect from '@/components/SearchableRentalSpaceSelect'
+import SearchableTenantSelect from '@/components/SearchableTenantSelect'
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
 
 export default function NewContractPage() {
   const router = useRouter()
@@ -14,8 +20,6 @@ export default function NewContractPage() {
   const [tenants, setTenants] = useState<User[]>([])
   const [spaces, setSpaces] = useState<RentalSpace[]>([])
   const [loadingData, setLoadingData] = useState(true)
-  const [showSpaceDropdown, setShowSpaceDropdown] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const [formData, setFormData] = useState({
     tenantId: '',
@@ -24,21 +28,10 @@ export default function NewContractPage() {
     endDate: '',
     monthlyRent: '',
     securityDeposit: '',
-    terms: '',
   })
 
   useEffect(() => {
     fetchData()
-  }, [])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowSpaceDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   const fetchData = async () => {
@@ -53,11 +46,12 @@ export default function NewContractPage() {
       
       // Handle paginated responses - extract actual arrays from nested structure
       const tenantsArray = tenantsData.data?.data || tenantsData.data || []
-      const availableSpaces = (spacesData.data?.data || spacesData.data || []).filter((space: any) => {
+      const availableSpaces = ((spacesData.data?.data || spacesData.data || []) as RentalSpace[]).filter((space) => {
+        const fields = space as RentalSpace & { occupancyStatus?: string; occupancy_status?: string; active_contracts_count?: number; activeContractsCount?: number }
         const status = String(space.status || '').toLowerCase()
-        const occupancyStatus = String(space.occupancyStatus || space.occupancy_status || '').toLowerCase()
-        const activeContractCount = Number(space.active_contracts_count ?? space.activeContractsCount ?? 0)
-        const blockedStates = new Set(['occupied', 'maintenance', 'reserved', 'rented', 'terminated', 'unavailable'])
+        const occupancyStatus = String(fields.occupancyStatus || fields.occupancy_status || '').toLowerCase()
+        const activeContractCount = Number(fields.active_contracts_count ?? fields.activeContractsCount ?? 0)
+        const blockedStates = new Set(['occupied', 'maintenance', 'inactive', 'reserved', 'rented', 'terminated', 'unavailable'])
 
         const isAvailableStatus = status === 'available' || status === '' || status === 'null' || status === 'undefined'
         const isNotBlocked = !blockedStates.has(status) && !blockedStates.has(occupancyStatus)
@@ -75,9 +69,9 @@ export default function NewContractPage() {
       
       setTenants(tenantsArray)
       setSpaces(availableSpaces)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ Error fetching data:', err)
-      alert(err.message || 'Failed to load data')
+      alert(getErrorMessage(err, 'Failed to load data'))
     } finally {
       console.log('[FETCH END] loadingData set to false')
       setLoadingData(false)
@@ -86,6 +80,16 @@ export default function NewContractPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!formData.tenantId) {
+      alert('Please select a tenant.')
+      return
+    }
+
+    if (!formData.rentalSpaceId) {
+      alert('Please select a rental space.')
+      return
+    }
 
     const todayStr = new Date().toISOString().split('T')[0]
     if (formData.startDate < todayStr) {
@@ -111,18 +115,19 @@ export default function NewContractPage() {
       setTimeout(() => {
         router.push('/dashboard/contracts')
       }, 2000)
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Check if error is validation error with multiple field errors
-      if (err.errors && typeof err.errors === 'object') {
-        const errorMessages = Object.entries(err.errors)
-          .map(([field, messages]: [string, any]) => {
-            const msg = Array.isArray(messages) ? messages[0] : messages;
-            return `${field}: ${msg}`;
+      const failure = err && typeof err === 'object' ? err as { errors?: unknown; message?: string } : {}
+      if (failure.errors && typeof failure.errors === 'object') {
+        const errorMessages = Object.entries(failure.errors)
+          .map(([field, messages]) => {
+            const msg = Array.isArray(messages) ? messages[0] : messages
+            return `${field}: ${String(msg)}`
           })
-          .join('\n');
-        alert(`Validation Error:\n${errorMessages}`);
+          .join('\n')
+        alert(`Validation Error:\n${errorMessages}`)
       } else {
-        alert(err.message || 'Failed to create contract');
+        alert(failure.message || getErrorMessage(err, 'Failed to create contract'))
       }
     } finally {
       setIsLoading(false)
@@ -137,23 +142,13 @@ export default function NewContractPage() {
   }
 
   const handleRentalSpaceSelect = (spaceId: string) => {
-    // Find the selected space
-    const selectedSpace = spaces.find((s: any) => s.id == spaceId)
-    
-    // Auto-populate monthly rent from the rental space's base rental rate
-    let newMonthlyRent = formData.monthlyRent
-    if (selectedSpace && (selectedSpace.base_rental_rate || selectedSpace.baseRentalRate)) {
-      const baseRate = selectedSpace.base_rental_rate || selectedSpace.baseRentalRate
-      newMonthlyRent = String(baseRate)
-      console.log(`✅ Auto-populated monthly rent: ₱${baseRate} from space ${selectedSpace.space_code}`)
-    }
-    
-    setFormData({
-      ...formData,
+    const selectedSpace = spaces.find((space) => String(space.id) === spaceId)
+    const baseRate = selectedSpace?.base_rental_rate || selectedSpace?.baseRentalRate
+    setFormData((previous) => ({
+      ...previous,
       rentalSpaceId: spaceId,
-      monthlyRent: newMonthlyRent,
-    })
-    setShowSpaceDropdown(false)
+      monthlyRent: baseRate ? String(baseRate) : previous.monthlyRent,
+    }))
   }
 
   return (
@@ -187,25 +182,15 @@ export default function NewContractPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Tenant <span className="text-red-500">*</span>
                 </label>
-                <select
-                  name="tenantId"
+                <SearchableTenantSelect
+                  tenants={tenants}
                   value={formData.tenantId}
-                  onChange={handleChange}
-                  required
-                  style={{ position: 'relative', zIndex: 10 }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                >
-                  <option value="">Select a tenant</option>
-                  {tenants.map((tenant: any) => (
-                    <option key={tenant.id} value={tenant.id}>
-                      {tenant.contact_person} - {tenant.user?.email}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(tenantId) => setFormData((previous) => ({ ...previous, tenantId }))}
+                />
               </div>
 
               {/* Rental Space Selection - Custom Dropdown */}
-              <div ref={dropdownRef} className="form-section" style={{ position: 'relative', zIndex: 50 }}>
+              <div className="form-section" style={{ position: 'relative', zIndex: 50 }}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Rental Space <span className="text-red-500">*</span>
                   {/* Debug: Show count */}
@@ -221,59 +206,11 @@ export default function NewContractPage() {
                   value={formData.rentalSpaceId}
                 />
                 
-                {/* Custom Dropdown Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowSpaceDropdown(!showSpaceDropdown)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-left bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  style={{ textAlign: 'left' }}
-                >
-                  {formData.rentalSpaceId
-                    ? spaces.find((s: any) => s.id == formData.rentalSpaceId)
-                      ? `${spaces.find((s: any) => s.id == formData.rentalSpaceId)?.spaceCode || spaces.find((s: any) => s.id == formData.rentalSpaceId)?.spaceNumber || 'N/A'} - ${spaces.find((s: any) => s.id == formData.rentalSpaceId)?.name || 'N/A'}`
-                      : 'Select a rental space'
-                    : 'Select a rental space'}
-                  <span className="float-right">▼</span>
-                </button>
-                
-                {/* Custom Dropdown List - Opens Downward */}
-                {showSpaceDropdown && (
-                  <div
-                    className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50"
-                    style={{
-                      maxHeight: '300px',
-                      overflowY: 'auto',
-                      marginTop: '4px',
-                    }}
-                  >
-                    <div
-                      className="px-4 py-2 text-gray-500 text-sm cursor-pointer hover:bg-gray-100"
-                      onClick={() => {
-                        setFormData({ ...formData, rentalSpaceId: '' })
-                        setShowSpaceDropdown(false)
-                      }}
-                    >
-                      Select a rental space
-                    </div>
-                    {spaces.map((space: any) => (
-                      <div
-                        key={space.id}
-                        className="px-4 py-2 text-sm cursor-pointer hover:bg-blue-100 border-b border-gray-100"
-                        onClick={() => {
-                          handleRentalSpaceSelect(space.id)
-                        }}
-                      >
-                        <div className="font-medium">{space.space_code} - {space.name}</div>
-                        <div className="text-gray-500 text-xs">
-                          {space.size_sqm} sqm • {space.status}
-                          {(space.base_rental_rate || space.baseRentalRate) && (
-                            <> • ₱{(space.base_rental_rate || space.baseRentalRate).toLocaleString()}/month</>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <SearchableRentalSpaceSelect
+                  spaces={spaces}
+                  value={formData.rentalSpaceId}
+                  onChange={handleRentalSpaceSelect}
+                />
                 
                 {spaces.length === 0 && !loadingData && (
                   <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
@@ -332,7 +269,7 @@ export default function NewContractPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="0.00"
                   />
-                  <p className="text-xs text-gray-500 mt-1">💡 Automatically filled from the selected rental space rate</p>
+                  <p className="text-xs text-gray-500 mt-1">Automatically filled from the selected space. You can adjust the amount if needed.</p>
                 </div>
 
                 <div>
@@ -350,21 +287,6 @@ export default function NewContractPage() {
                     placeholder="0.00"
                   />
                 </div>
-              </div>
-
-              {/* Terms and Conditions */}
-              <div className="form-section">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Terms and Conditions
-                </label>
-                <textarea
-                  name="terms"
-                  value={formData.terms}
-                  onChange={handleChange}
-                  rows={6}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-                  placeholder="Enter contract terms and conditions..."
-                />
               </div>
 
               {/* Action Buttons */}

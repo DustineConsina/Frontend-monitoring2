@@ -39,13 +39,16 @@ class WorksheetShim {
   }
 
   getColumn(columnNumber: number) {
-    const worksheet = this
+    const getWidth = () => this.widths[columnNumber - 1]?.wch || 12
+    const setWidth = (value: number) => {
+      this.widths[columnNumber - 1] = { wch: value }
+    }
     return {
       get width() {
-        return worksheet.widths[columnNumber - 1]?.wch || 12
+        return getWidth()
       },
       set width(value: number) {
-        worksheet.widths[columnNumber - 1] = { wch: value }
+        setWidth(value)
       },
     }
   }

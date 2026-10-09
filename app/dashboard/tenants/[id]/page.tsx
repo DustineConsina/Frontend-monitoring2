@@ -4,21 +4,35 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import apiClient from '@/lib/api-client'
+import apiClient, { resolveApiBaseUrl } from '@/lib/api-client'
 import { User, Contract } from '@/types'
-import { Pencil } from 'lucide-react'
+import { Building2, CalendarDays, FileText, KeyRound, Pencil, Wallet } from 'lucide-react'
+import { formatCalendarDate } from '@/lib/date-format'
+import { statusColorClass } from '@/lib/status-colors'
+import { useAuth } from '@/contexts/AuthContext'
+
+const FIXED_BUSINESS_ADDRESS = 'Pier 2, Zone 4, Bulan Sorsogon'
+
+const formatBusinessPermitNumber = (value: string) => {
+  const digitsOnly = value.replace(/\D/g, '').slice(0, 12)
+  return digitsOnly.match(/.{1,4}/g)?.join('-') || ''
+}
 
 export default function TenantDetailsPage() {
   const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
   const tenantId = parseInt(params.id as string)
 
   const [tenant, setTenant] = useState<any | null>(null)
   const [contracts, setContracts] = useState<Contract[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showQrAccessCode, setShowQrAccessCode] = useState(false)
   const [profilePictureFailed, setProfilePictureFailed] = useState(false)
+  const [showQrAccessCode, setShowQrAccessCode] = useState(false)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
+  const [passwordResetError, setPasswordResetError] = useState<string | null>(null)
+  const [passwordResetMessage, setPasswordResetMessage] = useState<string | null>(null)
 
   // Edit modal states
   const [showEditModal, setShowEditModal] = useState(false)
@@ -28,13 +42,15 @@ export default function TenantDetailsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [editFormData, setEditFormData] = useState({
     firstName: '',
+    middleName: '',
     lastName: '',
+    suffix: '',
     email: '',
     contactNumber: '',
     address: '',
+    status: 'active',
     businessName: '',
-    businessType: '',
-    businessAddress: '',
+    businessAddress: FIXED_BUSINESS_ADDRESS,
     businessPermitNumber: '',
     profilePicture: null as File | null,
   })
@@ -46,7 +62,7 @@ export default function TenantDetailsPage() {
   const fetchTenantData = async () => {
     try {
       const response = await apiClient.getTenant(tenantId.toString())
-      let tenantData = response.data || response
+      const tenantData = response.data || response
 
       if (!tenantData || !tenantData.id) {
         throw new Error('Invalid tenant data or not found')
@@ -54,24 +70,30 @@ export default function TenantDetailsPage() {
 
       const fullName = tenantData.contactPerson || tenantData.contact_person || tenantData.user?.name || tenantData.name || ''
       const nameParts = fullName.trim().split(/\s+/)
+      const suffixOptions = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
+      const existingSuffix = suffixOptions.find((option) => option.toLowerCase() === nameParts[nameParts.length - 1]?.toLowerCase())
+      const suffix = tenantData.suffix || tenantData.user?.suffix || existingSuffix || ''
+      if (existingSuffix && !tenantData.suffix && !tenantData.user?.suffix) nameParts.pop()
       const firstName = nameParts[0] || ''
-      const lastName = nameParts.slice(1).join(' ') || ''
+      const middleName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : ''
+      const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] || '' : ''
 
       const mappedTenant: any = {
         id: tenantData.id,
         name: fullName,
         firstName: firstName,
+        middleName: tenantData.middleName || tenantData.middle_name || middleName,
         lastName: lastName,
+        suffix,
         email: tenantData.email || tenantData.user?.email || '',
         phone: tenantData.phone || tenantData.contactNumber || tenantData.contact_number || tenantData.user?.phone || '',
         contactNumber: tenantData.contactNumber || tenantData.contact_number || tenantData.user?.phone || '',
         address: tenantData.address || tenantData.user?.address || '',
         role: tenantData.role || tenantData.user?.role || 'TENANT',
         businessName: tenantData.businessName || tenantData.business_name || '',
-        businessType: tenantData.businessType || tenantData.business_type || '',
-        businessAddress: tenantData.businessAddress || tenantData.business_address || '',
+        businessAddress: tenantData.businessAddress || tenantData.business_address || FIXED_BUSINESS_ADDRESS,
         contactPerson: tenantData.contactPerson || tenantData.contact_person || '',
-        businessPermitNumber: tenantData.businessPermitNumber || tenantData.business_permit_number || tenantData.tin || '',
+        businessPermitNumber: formatBusinessPermitNumber(tenantData.businessPermitNumber || tenantData.business_permit_number || tenantData.tin || ''),
         tenantCode: tenantData.tenantCode || tenantData.tenant_code || '',
         status: (tenantData.status || tenantData.status || 'active'),
         // FIX: apiClient converts snake_case to camelCase, so profile_picture_url becomes profilePictureUrl
@@ -81,10 +103,9 @@ export default function TenantDetailsPage() {
         profile_picture: tenantData.profilePictureUrl || tenantData.profilePicture || tenantData.profile_picture || tenantData.user?.profilePictureUrl || tenantData.user?.profile_picture,
         contact_person: tenantData.contact_person || tenantData.contactPerson || '',
         business_name: tenantData.business_name || tenantData.businessName || '',
-        business_type: tenantData.business_type || tenantData.businessType || '',
-        business_address: tenantData.business_address || tenantData.businessAddress || '',
+        business_address: tenantData.business_address || tenantData.businessAddress || FIXED_BUSINESS_ADDRESS,
         tenant_code: tenantData.tenant_code || tenantData.tenantCode || '',
-        qrAccessCode: tenantData.qrAccessCode || tenantData.qr_access_code || '',
+        qrAccessCode: tenantData.qrAccessCode || tenantData.qr_access_code || tenantData.qrPassword || tenantData.qr_password || tenantData.accessCode || tenantData.access_code || '',
         user: tenantData.user,
         createdAt: tenantData.createdAt || tenantData.created_at,
       }
@@ -116,17 +137,40 @@ export default function TenantDetailsPage() {
     }
   }
 
+  const resetSharedPassword = async () => {
+    if (!tenant || !window.confirm('Reset this tenant password? The new password will be used for both login and QR access, and their current sessions will end.')) return
+
+    setIsResettingPassword(true)
+    setPasswordResetError(null)
+    setPasswordResetMessage(null)
+    try {
+      const response = await apiClient.resetTenantPassword(String(tenant.id))
+      const password = response.temporaryPassword || response.temporary_password || response.qrAccessCode || response.qr_access_code
+      if (!password) throw new Error('The server did not return the new password.')
+
+      setTenant((current: any) => ({ ...current, qrAccessCode: String(password), qr_access_code: String(password) }))
+      setShowQrAccessCode(true)
+      setPasswordResetMessage('The shared login and QR password was updated. Give this value to the tenant now.')
+    } catch (resetError) {
+      setPasswordResetError(resetError instanceof Error ? resetError.message : 'Unable to reset the tenant password.')
+    } finally {
+      setIsResettingPassword(false)
+    }
+  }
+
   const openEditModal = async () => {
     if (!tenant) return
     setEditFormData({
       firstName: tenant.firstName,
+      middleName: tenant.middleName || '',
       lastName: tenant.lastName,
+      suffix: tenant.suffix || '',
       email: tenant.email,
       contactNumber: tenant.contactNumber,
       address: tenant.address,
+      status: String(tenant.status || 'active').toLowerCase(),
       businessName: tenant.businessName,
-      businessType: tenant.businessType,
-      businessAddress: tenant.businessAddress,
+      businessAddress: tenant.businessAddress || FIXED_BUSINESS_ADDRESS,
       businessPermitNumber: tenant.businessPermitNumber,
       profilePicture: null,
     })
@@ -143,7 +187,7 @@ export default function TenantDetailsPage() {
     }
   }
 
-  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name } = e.target
 
     if (e.target instanceof HTMLInputElement && e.target.type === 'file') {
@@ -152,7 +196,14 @@ export default function TenantDetailsPage() {
         [name]: (e.target as HTMLInputElement).files?.[0] || null,
       }))
     } else {
-      const { value } = e.target
+      const rawValue = e.target.value
+      const value = name === 'contactNumber'
+        ? rawValue.replace(/\D/g, '').slice(0, 11)
+        : name === 'businessPermitNumber'
+          ? formatBusinessPermitNumber(rawValue)
+          : name === 'businessAddress'
+            ? FIXED_BUSINESS_ADDRESS
+            : rawValue
       setEditFormData((prev) => ({ ...prev, [name]: value }))
     }
   }
@@ -164,51 +215,52 @@ export default function TenantDetailsPage() {
     setEditSuccess(null)
 
     try {
-      // Combine all user and tenant data into single payload for updateTenant endpoint
+      const contactPerson = [editFormData.firstName, editFormData.middleName, editFormData.lastName, editFormData.suffix].filter(Boolean).join(' ').trim()
       const updatePayload = {
+        first_name: editFormData.firstName,
+        middle_name: editFormData.middleName,
+        last_name: editFormData.lastName,
+        suffix: editFormData.suffix,
+        email: editFormData.email,
+        contact_number: editFormData.contactNumber,
+        address: editFormData.address,
+        status: editFormData.status,
+        contact_person: contactPerson,
+        business_name: editFormData.businessName,
+        business_address: FIXED_BUSINESS_ADDRESS,
+        business_permit_number: formatBusinessPermitNumber(editFormData.businessPermitNumber),
+      }
+
+      await apiClient.updateTenant(tenantId.toString(), updatePayload)
+
+      if (editFormData.profilePicture) {
+        await apiClient.uploadTenantProfilePicture(tenantId.toString(), editFormData.profilePicture)
+      }
+
+      await fetchTenantData()
+      setTenant((current: any) => ({
+        ...current,
+        name: contactPerson,
         firstName: editFormData.firstName,
+        middleName: editFormData.middleName,
         lastName: editFormData.lastName,
+        suffix: editFormData.suffix,
         email: editFormData.email,
         phone: editFormData.contactNumber,
+        contactNumber: editFormData.contactNumber,
         address: editFormData.address,
-        contactPerson: editFormData.firstName + ' ' + editFormData.lastName,
+        status: editFormData.status,
         businessName: editFormData.businessName,
-        businessType: editFormData.businessType,
-        businessAddress: editFormData.businessAddress,
-        business_permit_number: editFormData.businessPermitNumber,
-      }
-
-      // Update tenant (which also updates associated user data)
-      const tenantResult = await apiClient.updateTenant(tenantId.toString(), updatePayload)
-      console.log('Tenant update result:', tenantResult)
-
-      // Handle profile picture upload
-      if (editFormData.profilePicture) {
-        const formData = new FormData()
-        formData.append('profile_picture', editFormData.profilePicture)
-
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
-        const response = await fetch(`${apiUrl}/tenants/${tenantId}/upload-picture`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-          },
-          body: formData,
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to upload profile picture')
-        }
-      }
-
-      setEditSuccess('✅ Tenant updated successfully!')
-      setTimeout(() => setEditSuccess(null), 3000)
-
-      // Refresh data after short delay
-      setTimeout(async () => {
-        await fetchTenantData()
-        closeEditModal()
-      }, 1500)
+        businessAddress: FIXED_BUSINESS_ADDRESS,
+        contactPerson,
+        businessPermitNumber: formatBusinessPermitNumber(editFormData.businessPermitNumber),
+        contact_person: contactPerson,
+        business_name: editFormData.businessName,
+        business_address: FIXED_BUSINESS_ADDRESS,
+        business_permit_number: formatBusinessPermitNumber(editFormData.businessPermitNumber),
+      }))
+      setShowEditModal(false)
+      setEditSuccess(null)
     } catch (err: any) {
       setEditError(err.message || 'Failed to update tenant')
     } finally {
@@ -225,14 +277,14 @@ export default function TenantDetailsPage() {
       let resolvedUrl = String(url)
       if (/^https?:\/\//i.test(resolvedUrl)) {
         const parsedUrl = new URL(resolvedUrl)
-        const apiUrl = new URL(process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api')
+        const apiUrl = new URL(resolveApiBaseUrl())
         if (/^(localhost|127\.0\.0\.1|::1)$/i.test(parsedUrl.hostname)) {
           parsedUrl.protocol = apiUrl.protocol
           parsedUrl.host = apiUrl.host
         }
         resolvedUrl = parsedUrl.toString()
       } else {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+        const apiUrl = resolveApiBaseUrl()
         resolvedUrl = resolvedUrl.startsWith('/api/')
           ? `${new URL(apiUrl).origin}${resolvedUrl}`
           : `${apiUrl.replace(/\/$/, '')}${resolvedUrl.startsWith('/') ? resolvedUrl : `/storage/${resolvedUrl.replace(/^\/+/, '')}`}`
@@ -262,16 +314,7 @@ export default function TenantDetailsPage() {
   }
 
   const getStatusBadge = (status: string) => {
-    const normalizedStatus = (status || '').toUpperCase()
-    const colors = {
-      ACTIVE: 'bg-green-100 text-green-800',
-      FOR_RENEWAL: 'bg-indigo-100 text-indigo-800 font-bold',
-      EXPIRED: 'bg-yellow-100 text-yellow-800',
-      TERMINATED: 'bg-red-100 text-red-800',
-      PENDING: 'bg-blue-100 text-blue-800',
-      RENEWED: 'bg-indigo-100 text-indigo-800',
-    }
-    return colors[normalizedStatus as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return statusColorClass(status)
   }
 
   if (isLoading) {
@@ -306,194 +349,207 @@ export default function TenantDetailsPage() {
   }
 
   const profilePictureUrl = getProfilePictureUrl()
+  const qrAccessCode = tenant.qrAccessCode || tenant.qr_access_code || ''
+  const activeContracts = contracts.filter((contract) => ['active', 'for_renewal', 'renewed', 'pending'].includes(String(contract.status || '').toLowerCase()))
+  const monthlyRentTotal = activeContracts.reduce((sum, contract) => sum + Number(contract.monthlyRent || contract.monthlyRental || contract.monthly_rental || 0), 0)
+  const memberSince = tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'
 
   return (
     <ProtectedRoute>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              {tenant.firstName} {tenant.lastName}
-            </h2>
-            <p className="text-gray-600">Tenant Details</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <button onClick={() => router.push('/dashboard/tenants')} className="transition hover:text-teal-800">Tenants</button>
+            <span aria-hidden="true">/</span>
+            <span className="text-slate-800">Tenant profile</span>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => router.push('/dashboard/tenants')}
-              title="Back to Tenants"
-              className="back-action"
-            >
-              Back
-            </button>
-            <button
-              onClick={openEditModal}
-              title="Edit Tenant"
-              aria-label="Edit Tenant"
-              className="action-edit inline-flex h-10 w-10 items-center justify-center rounded-lg border"
-            >
-              <Pencil className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
+          <button type="button" onClick={openEditModal} title="Edit Tenant" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800">
+            <Pencil className="h-4 w-4" aria-hidden="true" /> Edit profile
+          </button>
         </div>
 
         {/* Tenant Information */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Details - 2 Columns */}
-            <div className="md:col-span-2">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-semibold mb-4">QR Access Password</h3>
-                  <div className="flex max-w-sm items-center gap-3">
-                    <input
-                      type={showQrAccessCode ? 'text' : 'password'}
-                      value={tenant.qrAccessCode || 'Not available'}
-                      readOnly
-                      className="flex-1 rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 font-mono tracking-[0.25em]"
-                      aria-label="Tenant QR access password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowQrAccessCode((visible) => !visible)}
-                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      {showQrAccessCode ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                </div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Full Name
-                  </label>
-                  <p className="text-gray-900">
-                    {tenant.firstName} {tenant.lastName}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Email Address
-                  </label>
-                  <p className="text-gray-900">{tenant.email}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Phone Number
-                  </label>
-                  <p className="text-gray-900">{tenant.contactNumber || 'N/A'}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Role
-                  </label>
-                  <p className="text-gray-900">{tenant.role}</p>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Address
-                  </label>
-                  <p className="text-gray-900">{tenant.address || 'N/A'}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Member Since
-                  </label>
-                  <p className="text-gray-900">
-                    {new Date(tenant.createdAt || '').toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Profile Picture - Right Side */}
-            <div className="flex justify-center md:justify-end">
-              <div className="w-40 h-40 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden shadow">
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-white px-5 py-5 sm:px-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-xl font-bold text-slate-700 sm:h-[72px] sm:w-[72px]">
                 {profilePictureUrl && !profilePictureFailed ? (
                   <img
                     key={profilePictureUrl}
                     src={profilePictureUrl}
                     alt={tenant.firstName || 'Tenant'}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      console.warn('Image failed to load:', profilePictureUrl)
-                      setProfilePictureFailed(true)
-                    }}
+                    className="h-full w-full object-cover"
+                    onError={() => setProfilePictureFailed(true)}
                   />
                 ) : (
-                  <div className="text-4xl font-bold text-white text-center">
+                  <div className="flex h-full w-full items-center justify-center">
                     {tenant.firstName?.[0]}{tenant.lastName?.[0]}
                   </div>
                 )}
               </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{tenant.firstName} {tenant.middleName ? `${tenant.middleName} ` : ''}{tenant.lastName} {tenant.suffix}</h3>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${getStatusBadge(tenant.status)}`}>{tenant.status || 'ACTIVE'}</span>
+                </div>
+                <p className="mt-1 truncate text-sm text-slate-600">{tenant.businessName || 'Business name not provided'}</p>
+                <p className="mt-2 font-mono text-[10px] font-semibold tracking-[0.12em] text-slate-500">TENANT ID · {tenant.tenantCode || tenant.tenant_code || `ID-${tenant.id}`}</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2 sm:ml-auto">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"><CalendarDays className="h-3.5 w-3.5 text-slate-400" /> Member since {memberSince}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"><FileText className="h-3.5 w-3.5 text-slate-400" /> {contracts.length} contract{contracts.length === 1 ? '' : 's'}</span>
+              </div>
             </div>
           </div>
-        </div>
+
+          <div className="grid grid-cols-1 gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_280px] lg:p-6">
+            <div className="min-w-0">
+              <div className="mb-4 border-b border-slate-100 pb-3">
+                <h4 className="text-base font-bold text-slate-900">Personal information</h4>
+                <p className="mt-1 text-xs text-slate-500">Contact and account details</p>
+              </div>
+              <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+                <div className="border-b border-slate-100 py-3">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Full Name
+                  </label>
+                  <p className="break-words text-sm font-semibold text-slate-900">
+                    {tenant.firstName} {tenant.middleName ? `${tenant.middleName} ` : ''}{tenant.lastName} {tenant.suffix}
+                  </p>
+                </div>
+
+                <div className="border-b border-slate-100 py-3">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Email Address
+                  </label>
+                  <p className="break-words text-sm font-semibold text-slate-900">{tenant.email || 'N/A'}</p>
+                </div>
+
+                <div className="border-b border-slate-100 py-3">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Phone Number
+                  </label>
+                  <p className="break-words text-sm font-semibold text-slate-900">{tenant.contactNumber || 'N/A'}</p>
+                </div>
+
+                <div className="border-b border-slate-100 py-3">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Role
+                  </label>
+                  <p className="break-words text-sm font-semibold capitalize text-slate-900">{tenant.role || 'Tenant'}</p>
+                </div>
+
+                <div className="border-b border-slate-100 py-3 sm:col-span-2">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Address
+                  </label>
+                  <p className="break-words text-sm font-semibold text-slate-900">{tenant.address || 'N/A'}</p>
+                </div>
+
+                <div className="py-3">
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Member Since
+                  </label>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <aside className="h-fit rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-800"><KeyRound className="h-4 w-4" aria-hidden="true" /></span>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">Login & QR password</h4>
+                  <p className="text-[11px] text-slate-500">Shared tenant credential</p>
+                </div>
+              </div>
+              {user?.role?.toUpperCase() === 'ADMIN' ? <>
+                <div className="mt-4 flex items-center gap-2">
+                  <input
+                    type={showQrAccessCode ? 'text' : 'password'}
+                    value={qrAccessCode || 'Not set'}
+                    readOnly
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-sm font-semibold tracking-[0.15em] text-slate-800"
+                    aria-label="Tenant shared login and QR password"
+                  />
+                  <button type="button" onClick={() => setShowQrAccessCode((visible) => !visible)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">{showQrAccessCode ? 'Hide' : 'Show'}</button>
+                </div>
+                {passwordResetError && <p className="mt-3 text-xs text-red-700" role="alert">{passwordResetError}</p>}
+                {passwordResetMessage && <p className="mt-3 rounded-lg bg-emerald-50 p-2.5 text-xs text-emerald-800" role="status">{passwordResetMessage}</p>}
+                <button type="button" onClick={() => void resetSharedPassword()} disabled={isResettingPassword} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60">
+                  <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />{isResettingPassword ? 'Resetting…' : 'Reset shared password'}
+                </button>
+                <p className="mt-2 text-[10px] leading-4 text-slate-500">Resetting changes the tenant’s login and QR password together and signs out existing sessions.</p>
+              </> : <p className="mt-3 text-xs text-slate-500">Credential management is available to administrators.</p>}
+            </aside>
+          </div>
+        </section>
+
+        <section aria-label="Tenant summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total contracts</p><span className="rounded-lg bg-slate-100 p-2 text-slate-600"><FileText className="h-4 w-4" /></span></div>
+            <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{contracts.length}</p>
+            <p className="mt-1 text-xs text-slate-500">{activeContracts.length} active or in progress</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned spaces</p><span className="rounded-lg bg-slate-100 p-2 text-slate-600"><Building2 className="h-4 w-4" /></span></div>
+            <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{new Set(contracts.map((contract) => String(contract.rentalSpaceId || contract.rental_space_id || contract.rentalSpace?.id || contract.rental_space?.id || '')).filter(Boolean)).size}</p>
+            <p className="mt-1 text-xs text-slate-500">Linked rental units</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Monthly rent</p><span className="rounded-lg bg-slate-100 p-2 text-slate-600"><Wallet className="h-4 w-4" /></span></div>
+            <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900">₱{monthlyRentTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="mt-1 text-xs text-slate-500">From active tenant contracts</p>
+          </div>
+        </section>
 
         {/* Business Information */}
-        {(tenant.businessName || tenant.businessType || tenant.businessAddress || tenant.businessPermitNumber) && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Business Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">
+        {(tenant.businessName || tenant.businessAddress || tenant.businessPermitNumber) && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Organization profile</p>
+            <h3 className="mb-5 mt-1 text-lg font-bold text-slate-900">Business Information</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                   Business Name
                 </label>
-                <p className="text-gray-900">{tenant.businessName || 'N/A'}</p>
+                <p className="break-words text-sm font-semibold text-slate-900">{tenant.businessName || 'N/A'}</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">
-                  Business Type
-                </label>
-                <p className="text-gray-900">{tenant.businessType || 'N/A'}</p>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-500 mb-1">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 sm:col-span-2">
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                   Business Address
                 </label>
-                <p className="text-gray-900">{tenant.businessAddress || 'N/A'}</p>
+                <p className="break-words text-sm font-semibold text-slate-900">{tenant.businessAddress || 'N/A'}</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                   Business Permit Number
                 </label>
-                <p className="text-gray-900">{tenant.businessPermitNumber || 'N/A'}</p>
+                <p className="break-words text-sm font-semibold text-slate-900">{tenant.businessPermitNumber || 'N/A'}</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tenant Status */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Status</h3>
-          <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(tenant.status)}`}>
-            {(tenant.status || 'active').toUpperCase()}
-          </span>
-        </div>
-
         {contracts.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Stall Blueprint</h3>
-                <p className="text-sm text-gray-500">Schematic location of this tenant&apos;s contracted stalls</p>
+                <h3 className="text-lg font-bold text-slate-900">Stall Blueprint</h3>
+                <p className="text-sm text-slate-500">Schematic location of this tenant&apos;s contracted stalls</p>
               </div>
               <div className="flex items-center gap-3 text-xs text-gray-500">
                 <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-blue-600" />Active</span>
                 <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-slate-200" />Other</span>
               </div>
             </div>
-            <div className="mt-5 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-3 sm:p-5">
-              <div className="mb-3 flex items-center justify-between border-b border-blue-100 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-500">
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-5">
+              <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 <span>Fish Port Stall Layout</span>
                 <span>{contracts.length} assigned</span>
               </div>
@@ -506,7 +562,7 @@ export default function TenantDetailsPage() {
                   return (
                     <div
                       key={`blueprint-${contract.id || index}`}
-                      className={`relative min-h-24 rounded-lg border-2 p-3 ${isActive ? 'border-blue-600 bg-blue-600 text-white shadow-md' : 'border-slate-200 bg-slate-100 text-slate-700'}`}
+                      className={`relative min-h-24 rounded-xl border p-3 transition ${isActive ? 'border-teal-700 bg-teal-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700'}`}
                     >
                       <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75">Bay {index + 1}</span>
                       <p className="mt-2 break-words text-sm font-bold">{spaceLabel}</p>
@@ -521,21 +577,20 @@ export default function TenantDetailsPage() {
 
         {/* Contracts Section */}
         {contracts.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Contracts ({contracts.length})</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="mb-4 text-lg font-bold text-slate-900">Contracts ({contracts.length})</h3>
             <div className="grid grid-cols-1 gap-4">
               {contracts.map((contract: any) => (
                 <Link
                   key={contract.id}
                   href={`/dashboard/contracts/${contract.id}`}
-                  className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition block"
+                  className="group block rounded-xl border border-slate-200 bg-white p-4 transition hover:border-teal-200 hover:bg-teal-50/40"
                 >
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="font-semibold text-gray-900">{contract.contractNumber || contract.contract_number}</p>
                       <p className="text-sm text-gray-600">
-                        {contract.startDate ? new Date(contract.startDate || '').toLocaleDateString() : 'N/A'} -{' '}
-                        {contract.endDate ? new Date(contract.endDate || '').toLocaleDateString() : 'N/A'}
+                        {formatCalendarDate(contract.startDate)} - {formatCalendarDate(contract.endDate)}
                       </p>
                     </div>
                     <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(contract.status || 'pending')}`}>
@@ -579,7 +634,7 @@ export default function TenantDetailsPage() {
               {/* Personal Information Section */}
               <div>
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       First Name <span className="text-red-500">*</span>
@@ -590,6 +645,19 @@ export default function TenantDetailsPage() {
                       value={editFormData.firstName}
                       onChange={handleEditFormChange}
                       required
+                      disabled={isSubmitting}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Middle Name / Initial
+                    </label>
+                    <input
+                      type="text"
+                      name="middleName"
+                      value={editFormData.middleName}
+                      onChange={handleEditFormChange}
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />
@@ -607,6 +675,24 @@ export default function TenantDetailsPage() {
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Suffix</label>
+                    <select
+                      name="suffix"
+                      value={editFormData.suffix}
+                      onChange={handleEditFormChange}
+                      disabled={isSubmitting}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                    >
+                      <option value="">None</option>
+                      <option value="Jr.">Jr.</option>
+                      <option value="Sr.">Sr.</option>
+                      <option value="II">II</option>
+                      <option value="III">III</option>
+                      <option value="IV">IV</option>
+                      <option value="V">V</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -641,6 +727,22 @@ export default function TenantDetailsPage() {
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tenant Status
+                    </label>
+                    <select
+                      name="status"
+                      value={editFormData.status}
+                      onChange={handleEditFormChange}
+                      disabled={isSubmitting}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="blacklisted">Blacklisted</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -682,19 +784,6 @@ export default function TenantDetailsPage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Business Type
-                    </label>
-                    <input
-                      type="text"
-                      name="businessType"
-                      value={editFormData.businessType}
-                      onChange={handleEditFormChange}
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
-                    />
-                  </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Business Address
@@ -704,8 +793,9 @@ export default function TenantDetailsPage() {
                       value={editFormData.businessAddress}
                       onChange={handleEditFormChange}
                       rows={3}
+                      readOnly
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none disabled:bg-gray-100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none bg-gray-50 disabled:bg-gray-100"
                     />
                   </div>
                   <div>
@@ -717,6 +807,9 @@ export default function TenantDetailsPage() {
                       name="businessPermitNumber"
                       value={editFormData.businessPermitNumber}
                       onChange={handleEditFormChange}
+                      placeholder="1234-5678-9012"
+                      inputMode="numeric"
+                      maxLength={14}
                       disabled={isSubmitting}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-gray-100"
                     />

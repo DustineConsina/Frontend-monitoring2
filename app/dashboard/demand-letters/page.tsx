@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import apiClient from '@/lib/api-client'
+import apiClient, { resolveApiBaseUrl } from '@/lib/api-client'
 import { AlertCircle, FileText, Download, Calendar } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 
@@ -101,16 +101,16 @@ export default function DemandLettersPage() {
     if (filter === 'all') return true
     return letter.status === filter
   })
-  const paginatedLetters = filteredLetters.slice((currentPage - 1) * 15, currentPage * 15)
+  const paginatedLetters = filteredLetters.slice((currentPage - 1) * 10, currentPage * 10)
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      issued: 'bg-blue-100 text-blue-800',
-      sent: 'bg-green-100 text-green-800',
-      settled: 'bg-gray-100 text-gray-800',
-      cancelled: 'bg-red-100 text-red-800',
+      issued: 'status-badge status-issued',
+      sent: 'status-badge status-sent',
+      settled: 'status-badge status-default',
+      cancelled: 'status-badge status-cancelled',
     }
-    return styles[status] || 'bg-gray-100 text-gray-800'
+    return styles[status] || 'status-badge status-default'
   }
 
   const formatCurrency = (amount: string | number) => {
@@ -131,7 +131,7 @@ export default function DemandLettersPage() {
   const handleDownload = async (demandLetterId: number) => {
     try {
       const token = localStorage.getItem('auth_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+      const baseUrl = resolveApiBaseUrl()
       
       const response = await fetch(
         `${baseUrl}/demand-letters/${demandLetterId}/download`,

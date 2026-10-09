@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import apiClient from '@/lib/api-client'
+import apiClient, { resolveApiBaseUrl } from '@/lib/api-client'
+
+const TENANT_SUFFIXES = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
 
 export default function EditTenantPage() {
   const params = useParams<{ id: string }>()
@@ -15,6 +17,7 @@ export default function EditTenantPage() {
 
   const [formData, setFormData] = useState({
     contactPerson: '',
+    suffix: '',
     businessName: '',
     contactNumber: '',
     profilePicture: null as File | null,
@@ -29,8 +32,12 @@ export default function EditTenantPage() {
       const response = await apiClient.getTenant(params.id)
       const data = response.data || response
       setTenant(data)
+      const nameParts = (data.contact_person || '').trim().split(/\s+/)
+      const suffix = TENANT_SUFFIXES.find((option) => option.toLowerCase() === nameParts[nameParts.length - 1]?.toLowerCase()) || ''
+      if (suffix) nameParts.pop()
       setFormData({
-        contactPerson: data.contact_person || '',
+        contactPerson: nameParts.join(' '),
+        suffix,
         businessName: data.business_name || '',
         contactNumber: data.contact_number || '',
         profilePicture: null,
@@ -43,7 +50,7 @@ export default function EditTenantPage() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     if (e.target instanceof HTMLInputElement && e.target.type === 'file') {
       setFormData({
         ...formData,
@@ -64,7 +71,7 @@ export default function EditTenantPage() {
 
     try {
       await apiClient.updateTenant(params.id, {
-        contact_person: formData.contactPerson,
+        contact_person: [formData.contactPerson, formData.suffix].filter(Boolean).join(' '),
         business_name: formData.businessName,
         contact_number: formData.contactNumber,
       })
@@ -73,7 +80,7 @@ export default function EditTenantPage() {
         const uploadFormData = new FormData()
         uploadFormData.append('profile_picture', formData.profilePicture)
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://contractmonitoringbackend-production.up.railway.app/api'
+        const apiUrl = resolveApiBaseUrl()
         const uploadResponse = await fetch(`${apiUrl}/tenants/${params.id}/upload-picture`, {
           method: 'POST',
           headers: {
@@ -142,6 +149,19 @@ export default function EditTenantPage() {
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
+            </div>
+
+            <div className="form-section">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Suffix</label>
+              <select
+                name="suffix"
+                value={formData.suffix}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              >
+                <option value="">None</option>
+                {TENANT_SUFFIXES.map((suffix) => <option key={suffix} value={suffix}>{suffix}</option>)}
+              </select>
             </div>
 
             <div className="form-section">

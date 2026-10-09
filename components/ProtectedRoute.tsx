@@ -1,19 +1,24 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { FishLoader } from '@/components/FishLoader'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const isAdminRoute = pathname.startsWith('/dashboard')
 
   useEffect(() => {
     if (!isLoading && !user) {
       router.push('/login')
     }
-  }, [user, isLoading, router])
+    if (!isLoading && user?.role?.toUpperCase() === 'TENANT' && isAdminRoute) {
+      router.replace('/tenant/dashboard')
+    }
+  }, [user, isLoading, router, isAdminRoute])
 
   if (isLoading) {
     return (
@@ -26,6 +31,8 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   if (!user) {
     return null
   }
+
+  if (user.role?.toUpperCase() === 'TENANT' && isAdminRoute) return null
 
   return <>{children}</>
 }

@@ -111,7 +111,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 # Application Configuration
 NEXT_PUBLIC_APP_NAME=PFDA Contract Monitoring System
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Semaphore SMS Configuration (server-side only)
+SEMAPHORE_API_KEY=your-semaphore-api-key
+SEMAPHORE_SENDER_NAME=PFDA
 ```
+
+For production on Vercel, set `NEXT_PUBLIC_API_URL` to the Render API URL,
+including `/api` (for example, `https://<render-service>.onrender.com/api`).
+The production build intentionally has no hard-coded backend host.
 
 ### 3. Running the Development Server
 

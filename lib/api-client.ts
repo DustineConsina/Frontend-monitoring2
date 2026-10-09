@@ -1,12 +1,17 @@
 // API Client for communicating with backend
-const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://10.0.7.42:8000/api'
+const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || (
+  process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000/api'
+)
 
 const isPrivateNetworkHost = (hostname: string) => {
   return /^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(hostname)
 }
 
-const resolveApiBaseUrl = () => {
+export const resolveApiBaseUrl = () => {
   const configuredUrl = DEFAULT_API_URL
+  if (!configuredUrl) {
+    throw new Error('NEXT_PUBLIC_API_URL must be configured for production.')
+  }
 
   if (typeof window === 'undefined') {
     return configuredUrl.replace(/\/$/, '')
@@ -16,9 +21,17 @@ const resolveApiBaseUrl = () => {
     const url = new URL(configuredUrl)
     const browserHost = window.location.hostname.toLowerCase()
     const configuredHost = url.hostname.toLowerCase()
-    if (isPrivateNetworkHost(configuredHost) && isPrivateNetworkHost(browserHost)) {
-      url.hostname = window.location.hostname
+    const configuredHostIsLocal = /^(localhost|127\.0\.0\.1|::1)$/i.test(configuredHost)
+
+    if (
+      configuredHostIsLocal &&
+      !/^(localhost|127\.0\.0\.1|::1)$/i.test(browserHost)
+    ) {
+      url.hostname = browserHost
+    } else if (isPrivateNetworkHost(configuredHost) && isPrivateNetworkHost(browserHost)) {
+      url.hostname = browserHost
     }
+
     return url.toString().replace(/\/$/, '')
   } catch {
     return configuredUrl.replace(/\/$/, '')
@@ -116,11 +129,10 @@ class ApiClient {
 
   async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit & { skipKeyTransform?: boolean } = {}
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
+    const isFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData
+    const headers: Record<string, string> = isFormDataBody ? {} : { 'Content-Type': 'application/json' }
 
     if (options.headers) {
       Object.assign(headers, options.headers)
@@ -133,7 +145,7 @@ class ApiClient {
     try {
       // Convert request body from camelCase to snake_case
       let body = options.body
-      if (body && typeof body === 'string') {
+      if (body && typeof body === 'string' && !options.skipKeyTransform) {
         try {
           const parsedBody = JSON.parse(body)
           const convertedBody = transformKeysToSnakeCase(parsedBody)
@@ -147,6 +159,7 @@ class ApiClient {
         ...options,
         body,
         headers,
+        cache: options.cache || 'no-store',
       })
 
       // Get content type
@@ -224,13 +237,6 @@ class ApiClient {
     return this.request<{ token: string; user: any }>('/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    })
-  }
-
-  async register(data: any) {
-    return this.request<{ token: string; user: any }>('/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
     })
   }
 
@@ -325,6 +331,16 @@ class ApiClient {
     })
   }
 
+  async getArchivedPayments(params: Record<string, string | number> = {}) {
+    return this.getPayments(undefined, { ...params, archived: 1 })
+  }
+
+  async restorePayment(id: string) {
+    return this.request<any>(`/payments/${id}/restore`, {
+      method: 'POST',
+    })
+  }
+
   // Rental Spaces
   async getRentalSpaces(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
@@ -335,6 +351,34 @@ class ApiClient {
     return this.request<any>(`/rental-spaces/${id}`)
   }
 
+  async createRentalSpace(data: any) {
+    return this.request<any>('/rental-spaces', {
+      method: 'POST',
+      body: data instanceof FormData ? data : JSON.stringify(data),
+    })
+  }
+
+  async updateRentalSpace(id: string, data: any) {
+    if (data instanceof FormData) {
+      data.set('_method', 'PUT')
+      return this.request<any>(`/rental-spaces/${id}`, {
+        method: 'POST',
+        body: data,
+      })
+    }
+
+    return this.request<any>(`/rental-spaces/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async deleteRentalSpace(id: string) {
+    return this.request<any>(`/rental-spaces/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
   // Get only available rental spaces (unoccupied)
   async getAvailableRentalSpaces(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
@@ -342,6 +386,22 @@ class ApiClient {
   }
 
   // Messages/Chat
+  async getChatConversations() {
+    return this.request<any>('/chat/conversations')
+  }
+
+  async getSmsMessages() {
+    return this.request<any>('/sms-messages')
+  }
+
+  async getConversationMessages(userId: string) {
+    return this.request<any>(`/chat/messages/${encodeURIComponent(userId)}`)
+  }
+
+  async getAvailableChatUsers() {
+    return this.request<any>('/chat/available-users')
+  }
+
   async getMessages(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
     const response = await this.request<any>(`/chat/conversations${query}`)
@@ -382,18 +442,10 @@ class ApiClient {
   }
 
   async sendSms(phoneNumber: string, message: string) {
-    const response = await fetch('/api/sms/send', {
+    return this.request<any>('/sms-messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phoneNumber, message }),
     })
-
-    const data = await response.json()
-    if (!response.ok) {
-      throw new Error(data.message || 'Unable to queue SMS')
-    }
-
-    return data as { success: boolean; data: { provider: string; messageId: string; status: string } }
   }
 
   // Reports
@@ -565,11 +617,82 @@ class ApiClient {
     })
   }
 
+  async resetTenantPassword(id: string) {
+    return this.request<any>(`/tenants/${id}/reset-password`, { method: 'POST' })
+  }
+
+  async getMyTenantPortal() {
+    return this.request<any>('/tenant/portal')
+  }
+
+  async getMyComplaints() {
+    return this.request<any>('/tenant/complaints')
+  }
+
+  async createComplaint(data: { category: string; subject: string; message: string }) {
+    return this.request<any>('/tenant/complaints', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async replyToComplaint(id: string, message: string) {
+    return this.request<any>(`/tenant/complaints/${id}/replies`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    })
+  }
+
+  async getComplaints() {
+    return this.request<any>('/complaints')
+  }
+
+  async getUnreadComplaintCount() {
+    return this.request<any>('/complaints/unread-count')
+  }
+
+  async markComplaintRead(id: string) {
+    return this.request<any>(`/complaints/${id}/read`, { method: 'PATCH' })
+  }
+
+  async updateComplaint(id: string, data: { status: string; reply?: string }) {
+    return this.request<any>(`/complaints/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
   async updateTenant(id: string, data: any) {
     return this.request<any>(`/tenants/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     })
+  }
+
+  async uploadTenantProfilePicture(id: string, file: File) {
+    const formData = new FormData()
+    formData.append('profile_picture', file)
+
+    const response = await fetch(`${this.baseUrl}/tenants/${id}/upload-picture`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      let message = 'Failed to upload profile picture.'
+      try {
+        const errorData = await response.clone().json()
+        message = errorData?.message || errorData?.error || message
+      } catch {
+        message = `Upload failed with status ${response.status}.`
+      }
+      throw new Error(message)
+    }
+
+    return response.json()
   }
 
   // Demand Letters

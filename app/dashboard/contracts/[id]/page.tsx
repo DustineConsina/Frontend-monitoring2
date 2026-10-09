@@ -1,15 +1,33 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
-import { Contract } from '@/types'
+import { Contract, Payment } from '@/types'
+import { formatCalendarDate } from '@/lib/date-format'
+import { statusColorClass } from '@/lib/status-colors'
+import { downloadLeasePdf } from '@/lib/lease-pdf'
+
+function unwrapContractResponse(response: unknown): Record<string, unknown> | null {
+  if (!response || typeof response !== 'object') return null
+  const payload = response as Record<string, unknown>
+  const data = payload.data && typeof payload.data === 'object' ? payload.data as Record<string, unknown> : null
+  const nestedData = data?.data && typeof data.data === 'object' ? data.data as Record<string, unknown> : null
+  const result = nestedData || data || payload
+  return result && !Array.isArray(result) ? result : null
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
 
 export default function ContractDetailsPage() {
   const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
   const contractId = params.id as string
   const [contract, setContract] = useState<Contract | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -26,26 +44,19 @@ export default function ContractDetailsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   // Safe date formatter
-  const formatDate = (dateInput: any): string => {
+  const formatDate = (dateInput: unknown): string => {
     try {
       if (!dateInput) return 'N/A'
       
-      const date = new Date(dateInput)
-      if (isNaN(date.getTime())) {
-        return 'Invalid Date'
-      }
-      return date.toLocaleDateString()
+      return formatCalendarDate(dateInput)
     } catch (e) {
       console.warn('Error formatting date:', dateInput, e)
       return 'Invalid Date'
     }
   }
 
-  useEffect(() => {
-    fetchContract()
-  }, [contractId])
-
-  const fetchContract = async () => {
+  const fetchContract = useCallback(async () => {
+    setIsLoading(true)
     try {
       const response = await apiClient.getContract(contractId)
       
@@ -55,7 +66,7 @@ export default function ContractDetailsPage() {
       console.log('   Is array?', Array.isArray(response.data))
       
       // API structure: {success: true, data: {contract object}}
-      let contractData = response.data
+      const contractData = unwrapContractResponse(response)
       
       if (!contractData) {
         console.error('❌ No data in response!')
@@ -100,7 +111,7 @@ export default function ContractDetailsPage() {
         // Nested objects - with fallbacks
         rentalSpace: contractData.rentalSpace || contractData.rental_space,
         tenant: contractData.tenant || contractData.renter,
-      }
+      } as Contract
       
       console.log('✅ Mapped Contract:', mappedContract)
       console.log('   Tenant in mapped:', mappedContract.tenant)
@@ -112,13 +123,18 @@ export default function ContractDetailsPage() {
       console.log('     monthly_rent:', mappedContract.monthly_rent)
       console.log('     Calculated monthlyRentValue:', monthlyRentValue)
       setContract(mappedContract)
-    } catch (err: any) {
+      setError(null)
+    } catch (err: unknown) {
       console.error('❌ Error loading contract:', err)
-      alert(err.message || 'Failed to load contract')
+      setError(getErrorMessage(err, 'Failed to load contract'))
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [contractId])
+
+  useEffect(() => {
+    void fetchContract()
+  }, [fetchContract])
 
   const handleTerminate = async () => {
     if (!terminationReason.trim()) {
@@ -131,8 +147,21 @@ export default function ContractDetailsPage() {
       setShowTerminateModal(false)
       setTerminationReason('')
       router.push('/dashboard/contracts')
-    } catch (err: any) {
-      alert(err.message || 'Failed to terminate contract')
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to terminate contract'))
+      setIsTerminating(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (user?.role?.toUpperCase() !== 'ADMIN') return
+    setIsTerminating(true)
+    try {
+      await apiClient.activateContract(contractId)
+      await fetchContract()
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to resume contract'))
+    } finally {
       setIsTerminating(false)
     }
   }
@@ -164,45 +193,21 @@ export default function ContractDetailsPage() {
 
       const newContractId = renewalResult?.data?.id || renewalResult?.data?.contract?.id
       router.push(newContractId ? `/dashboard/contracts/${newContractId}` : '/dashboard/contracts')
-    } catch (err: any) {
-      alert(err.message || 'Failed to renew contract')
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to renew contract'))
       setIsRenewing(false)
     }
   }
 
   const handleDownloadLease = async () => {
     if (!contract) return
-    
+
     setIsDownloading(true)
     try {
-      const token = localStorage.getItem('auth_token')
-      const response = await fetch(`/api/contracts/${encodeURIComponent(String(contract.id))}/lease`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/pdf'
-        }
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Response status:', response.status)
-        console.error('Response body:', errorText)
-        throw new Error(`HTTP ${response.status}: ${errorText}`)
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `lease-${contract.contractNumber}.pdf`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-    } catch (err: any) {
+      downloadLeasePdf(contract as Record<string, any>)
+    } catch (err: unknown) {
       console.error('Download error:', err)
-      alert(`Failed to download lease PDF: ${err.message}`)
+      alert(`Failed to download lease PDF: ${getErrorMessage(err, 'Unexpected error')}`)
     } finally {
       setIsDownloading(false)
     }
@@ -225,29 +230,14 @@ export default function ContractDetailsPage() {
       await apiClient.deleteContract(contractId)
       setShowDeleteModal(false)
       router.push('/dashboard/contracts')
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete contract')
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Failed to delete contract'))
       setIsDeleting(false)
     }
+  }
 
-      {showDeleteModal && contract && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-            <h3 className="text-xl font-bold text-gray-900">Delete Contract?</h3>
-            <p className="mt-3 text-sm leading-6 text-gray-600">
-              Delete <span className="font-semibold text-gray-900">{contract.contractNumber}</span>? This action cannot be undone.
-            </p>
-            <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
-              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={isDeleting} className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
-                Cancel
-              </button>
-              <button type="button" onClick={confirmDelete} disabled={isDeleting} className="action-danger rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
-                {isDeleting ? 'Deleting...' : 'Delete Contract'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+  const getStatusBadge = (status: string) => {
+    return statusColorClass(status)
   }
 
   if (isLoading) {
@@ -281,19 +271,6 @@ export default function ContractDetailsPage() {
     )
   }
 
-  const getStatusBadge = (status: string) => {
-    const upperStatus = status?.toUpperCase() || 'PENDING'
-    const colors = {
-      ACTIVE: 'bg-green-100 text-green-800',
-      FOR_RENEWAL: 'bg-indigo-100 text-indigo-800 font-bold',
-      EXPIRED: 'bg-orange-100 text-orange-800',
-      TERMINATED: 'bg-red-100 text-red-800',
-      PENDING: 'bg-blue-100 text-blue-800',
-      RENEWED: 'bg-indigo-100 text-indigo-800',
-    }
-    return colors[upperStatus as keyof typeof colors] || 'bg-gray-100 text-gray-800'
-  }
-
   return (
     <ProtectedRoute>
       <div className="space-y-6">
@@ -315,6 +292,12 @@ export default function ContractDetailsPage() {
               className="action-edit inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
             >
               Edit
+            </Link>
+            <Link
+              href={`/dashboard/audit-logs?search=${encodeURIComponent(contractId)}`}
+              className="action-secondary inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
+            >
+              Audit History
             </Link>
             <button
               onClick={handleDownloadLease}
@@ -352,6 +335,15 @@ export default function ContractDetailsPage() {
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
             )}
+            {user?.role?.toUpperCase() === 'ADMIN' && String(contract.status || '').toLowerCase() === 'terminated' && (
+              <button
+                onClick={handleResume}
+                disabled={isTerminating}
+                className="action-success inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
+              >
+                {isTerminating ? 'Resuming...' : 'Resume'}
+              </button>
+            )}
             <button
               onClick={() => setShowTerminateModal(true)}
               className="action-danger inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
@@ -361,7 +353,7 @@ export default function ContractDetailsPage() {
           </div>
         </div>
 
-        {/* Contract Information */}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Details */}
           <div className="lg:col-span-2 space-y-6">
@@ -492,7 +484,7 @@ export default function ContractDetailsPage() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Space Name:</span>
+                    <span className="text-gray-600">Facility:</span>
                     <span className="font-medium">
                       {(contract.rentalSpace || contract.rental_space)?.name 
                         || 'Not assigned'}
@@ -564,7 +556,7 @@ export default function ContractDetailsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {contract.payments.map((payment: any) => (
+                      {(contract.payments as Payment[]).map((payment) => (
                         <tr key={payment.id} className="border-b border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium text-gray-900">{payment.paymentNumber || payment.payment_number || 'N/A'}</td>
                           <td className="px-4 py-3 text-gray-600">
@@ -574,16 +566,16 @@ export default function ContractDetailsPage() {
                             {formatDate(payment.dueDate || payment.due_date)}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-gray-900">
-                            ₱{(parseFloat(payment.amountDue || payment.amount_due) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ₱{(Number(payment.amountDue ?? payment.amount_due) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-red-600">
-                            ₱{(parseFloat(payment.interestAmount || payment.interest_amount) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ₱{(Number(payment.interestAmount ?? payment.interest_amount) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-blue-600">
-                            ₱{(parseFloat(payment.totalAmount || payment.total_amount) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ₱{(Number(payment.totalAmount ?? payment.total_amount) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-green-600">
-                            ₱{(parseFloat(payment.amountPaid || payment.amount_paid) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            ₱{(Number(payment.amountPaid ?? payment.amount_paid) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -664,6 +656,25 @@ export default function ContractDetailsPage() {
         </div>
       </div>
 
+      {showDeleteModal && contract && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-gray-900">Delete Contract?</h3>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Delete <span className="font-semibold text-gray-900">{contract.contractNumber}</span>? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3 border-t border-gray-200 pt-4">
+              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={isDeleting} className="action-secondary rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmDelete} disabled={isDeleting} className="action-danger rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm">
+                {isDeleting ? 'Deleting...' : 'Delete Contract'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Terminate Contract Modal */}
       {showTerminateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -674,14 +685,21 @@ export default function ContractDetailsPage() {
             </p>
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">Termination Reason</label>
-              <textarea
+              <select
                 value={terminationReason}
                 onChange={(e) => setTerminationReason(e.target.value)}
+                required
                 disabled={isTerminating}
-                placeholder="Enter the reason for termination..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                rows={3}
-              />
+              >
+                <option value="">Select a reason</option>
+                <option value="Lease violation">Lease violation</option>
+                <option value="Non-payment of rent">Non-payment of rent</option>
+                <option value="Tenant request">Tenant request</option>
+                <option value="Rental space unavailable">Rental space unavailable</option>
+                <option value="Contract breach">Contract breach</option>
+                <option value="Other administrative reason">Other administrative reason</option>
+              </select>
             </div>
             <div className="flex gap-3">
               <button
