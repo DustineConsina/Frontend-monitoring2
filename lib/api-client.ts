@@ -10,7 +10,7 @@ const isPrivateNetworkHost = (hostname: string) => {
 export const resolveApiBaseUrl = () => {
   const configuredUrl = DEFAULT_API_URL
   if (!configuredUrl) {
-    throw new Error('NEXT_PUBLIC_API_URL must be configured for production.')
+    throw new Error('The backend is not connected yet. Set NEXT_PUBLIC_API_URL after deploying the backend.')
   }
 
   if (typeof window === 'undefined') {
@@ -103,11 +103,13 @@ function transformKeysToCAmelCase(obj: unknown): unknown {
 }
 
 class ApiClient {
-  private baseUrl: string
   private token: string | null = null
 
-  constructor(_baseUrl: string) {
-    this.baseUrl = resolveApiBaseUrl()
+  private get baseUrl() {
+    return resolveApiBaseUrl()
+  }
+
+  constructor() {
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('auth_token')
     }
@@ -814,5 +816,5 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient(DEFAULT_API_URL)
+export const apiClient = new ApiClient()
 export default apiClient

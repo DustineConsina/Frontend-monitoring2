@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Image from 'next/image'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import apiClient from '@/lib/api-client'
+import apiClient, { resolveApiBaseUrl } from '@/lib/api-client'
 import { RentalSpace } from '@/types'
 import Pagination from '@/components/Pagination'
 import { Ban, LayoutGrid, MapPinned, Pencil, Plus, Search, X } from 'lucide-react'
@@ -117,16 +117,25 @@ export default function RentalSpacesPage() {
     const record = space as unknown as Record<string, unknown>
     const image = String(record.mapImageUrl || record.map_image_url || record.mapImage || record.map_image || '').trim()
     if (!image) return '/loginbg.png'
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-    const apiLocation = new URL(apiUrl)
+    if (/^https?:\/\//i.test(image)) {
+      const cacheBust = encodeURIComponent(String(record.updatedAt || record.updated_at || image))
+      return `${image}${image.includes('?') ? '&' : '?'}v=${cacheBust}`
+    }
+    if (image.startsWith('/') && !image.startsWith('/storage/')) return image
+
+    let apiLocation: URL
+    try {
+      apiLocation = new URL(resolveApiBaseUrl())
+    } catch {
+      return '/loginbg.png'
+    }
+
     if (typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)$/i.test(apiLocation.hostname) && !/^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)$/i.test(window.location.hostname) && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(window.location.hostname)) {
       apiLocation.hostname = window.location.hostname
     }
     const backendOrigin = apiLocation.origin
     const cacheBust = encodeURIComponent(String(record.updatedAt || record.updated_at || image))
-    if (/^https?:\/\//i.test(image)) return `${image}${image.includes('?') ? '&' : '?'}v=${cacheBust}`
     if (image.startsWith('/storage/')) return `${backendOrigin}${image}?v=${cacheBust}`
-    if (image.startsWith('/')) return image
     return `${backendOrigin}/storage/${image.replace(/^\/+/, '')}?v=${cacheBust}`
   }
 

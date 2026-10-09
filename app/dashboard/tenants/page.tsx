@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import QRCode from 'qrcode'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import apiClient from '@/lib/api-client'
+import apiClient, { resolveApiBaseUrl } from '@/lib/api-client'
 import Pagination from '@/components/Pagination'
 import { ArrowUpRight, Building2, Mail, Phone, Printer, QrCode, Search, UserPlus, UserRound, Users } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -21,19 +21,19 @@ type TenantQRRecord = {
   }
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-
 const getRuntimeApiBaseUrl = () => {
-  if (typeof window === 'undefined') return API_BASE_URL
-
   try {
-    const apiUrl = new URL(API_BASE_URL)
-    if (/^(localhost|127\.0\.0\.1|::1)$/i.test(apiUrl.hostname) && !/^(localhost|127\.0\.0\.1|::1)$/i.test(window.location.hostname)) {
+    const apiUrl = new URL(resolveApiBaseUrl())
+    if (
+      typeof window !== 'undefined' &&
+      /^(localhost|127\.0\.0\.1|::1)$/i.test(apiUrl.hostname) &&
+      !/^(localhost|127\.0\.0\.1|::1)$/i.test(window.location.hostname)
+    ) {
       apiUrl.hostname = window.location.hostname
     }
     return apiUrl.toString().replace(/\/$/, '')
   } catch {
-    return API_BASE_URL
+    return ''
   }
 }
 
@@ -53,6 +53,7 @@ const getProfilePictureUrl = (tenant: any) => {
     if (/^https?:\/\//i.test(url)) {
       try {
         const parsedUrl = new URL(url)
+        if (!runtimeApiBaseUrl) return url
         const apiUrl = new URL(runtimeApiBaseUrl)
         if (/^(localhost|127\.0\.0\.1|::1)$/i.test(parsedUrl.hostname)) {
           parsedUrl.protocol = apiUrl.protocol
@@ -71,8 +72,9 @@ const getProfilePictureUrl = (tenant: any) => {
       }
     }
     if (String(url).startsWith('/')) {
-      return `${runtimeApiBaseUrl}${url}`
+      return runtimeApiBaseUrl ? `${runtimeApiBaseUrl}${url}` : '/loginbg.png'
     }
+    if (!runtimeApiBaseUrl) return '/loginbg.png'
     return `${runtimeApiBaseUrl}/storage/${String(url).replace(/^\/+/, '')}`
   }
 
