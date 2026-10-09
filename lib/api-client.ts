@@ -15,25 +15,28 @@ export const resolveApiBaseUrl = () => {
     return ''
   }
 
-  if (typeof window === 'undefined') {
-    return configuredUrl.replace(/\/$/, '')
-  }
-
   try {
     const url = new URL(configuredUrl)
-    const browserHost = window.location.hostname.toLowerCase()
-    const configuredHost = url.hostname.toLowerCase()
-    const configuredHostIsLocal = /^(localhost|127\.0\.0\.1|::1)$/i.test(configuredHost)
+    if (typeof window !== 'undefined') {
+      const browserHost = window.location.hostname.toLowerCase()
+      const configuredHost = url.hostname.toLowerCase()
+      const configuredHostIsLocal = /^(localhost|127\.0\.0\.1|::1)$/i.test(configuredHost)
 
-    if (
-      configuredHostIsLocal &&
-      !/^(localhost|127\.0\.0\.1|::1)$/i.test(browserHost)
-    ) {
-      url.hostname = browserHost
-    } else if (isPrivateNetworkHost(configuredHost) && isPrivateNetworkHost(browserHost)) {
-      url.hostname = browserHost
+      if (
+        configuredHostIsLocal &&
+        !/^(localhost|127\.0\.0\.1|::1)$/i.test(browserHost)
+      ) {
+        url.hostname = browserHost
+      } else if (isPrivateNetworkHost(configuredHost) && isPrivateNetworkHost(browserHost)) {
+        url.hostname = browserHost
+      }
     }
 
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/api'
+    }
+
+    url.pathname = url.pathname.replace(/\/+$/, '')
     return url.toString().replace(/\/$/, '')
   } catch {
     return configuredUrl.replace(/\/$/, '')
