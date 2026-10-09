@@ -118,11 +118,10 @@ SEMAPHORE_SENDER_NAME=PFDA
 ```
 
 For production on Vercel, set `NEXT_PUBLIC_API_URL` to the Render API URL,
-including `/api` (for example, `https://<render-service>.onrender.com/api`).
-You can deploy the frontend before the backend: leave `NEXT_PUBLIC_API_URL`
-unset until the backend is deployed. The frontend will build and load, but
-login and data features that need the API will remain unavailable until you
-set the URL in Vercel and redeploy.
+including `/api` (currently `https://backend-monitoring2.onrender.com/api`).
+The production API URL is also the default in the frontend, so the Vercel
+project can build without a separate API environment variable. Set
+`NEXT_PUBLIC_API_URL` in Vercel only if the backend URL changes.
 
 ### 3. Running the Development Server
 

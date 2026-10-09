@@ -1,6 +1,10 @@
 import { NextRequest } from 'next/server'
 
-const API_URL = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8000/api'
+const API_URL = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || (
+  process.env.NODE_ENV === 'production'
+    ? 'https://backend-monitoring2.onrender.com/api'
+    : 'http://127.0.0.1:8000/api'
+)
 
 export async function POST(
   request: NextRequest,
@@ -32,7 +36,7 @@ export async function POST(
     })
   } catch {
     return Response.json(
-      { message: 'Backend is unavailable on the computer. Start it on 127.0.0.1:8000.' },
+      { message: 'The backend service is currently unavailable.' },
       { status: 502 },
     )
   }

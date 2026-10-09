@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server'
 
 const API_URL = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || (
-  process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:8000/api'
+  process.env.NODE_ENV === 'production'
+    ? 'https://backend-monitoring2.onrender.com/api'
+    : 'http://127.0.0.1:8000/api'
 )
 
 export async function GET(

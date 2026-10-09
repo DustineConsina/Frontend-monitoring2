@@ -1,6 +1,8 @@
 // API Client for communicating with backend
 const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || (
-  process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000/api'
+  process.env.NODE_ENV === 'production'
+    ? 'https://backend-monitoring2.onrender.com/api'
+    : 'http://localhost:8000/api'
 )
 
 const isPrivateNetworkHost = (hostname: string) => {
@@ -10,7 +12,7 @@ const isPrivateNetworkHost = (hostname: string) => {
 export const resolveApiBaseUrl = () => {
   const configuredUrl = DEFAULT_API_URL
   if (!configuredUrl) {
-    throw new Error('The backend is not connected yet. Set NEXT_PUBLIC_API_URL after deploying the backend.')
+    return ''
   }
 
   if (typeof window === 'undefined') {
@@ -106,7 +108,11 @@ class ApiClient {
   private token: string | null = null
 
   private get baseUrl() {
-    return resolveApiBaseUrl()
+    const baseUrl = resolveApiBaseUrl()
+    if (!baseUrl) {
+      throw new Error('The backend is not connected yet. Set NEXT_PUBLIC_API_URL after deploying the backend.')
+    }
+    return baseUrl
   }
 
   constructor() {
