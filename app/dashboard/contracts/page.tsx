@@ -35,7 +35,6 @@ function ContractsPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [tenants, setTenants] = useState<any[]>([])
   const [spaces, setSpaces] = useState<any[]>([])
-  const [originalStartDate, setOriginalStartDate] = useState<string>('')
   const [formData, setFormData] = useState({
     tenantId: '',
     rentalSpaceId: '',
@@ -192,7 +191,6 @@ function ContractsPageContent() {
 
   const openAddModal = async () => {
     setEditingContractId(null)
-    setOriginalStartDate('')
     setFormData({
       tenantId: '',
       rentalSpaceId: '',
@@ -212,7 +210,6 @@ function ContractsPageContent() {
   const openEditModal = async (contract: any) => {
     const startStr = dateForInput(contract.startDate || contract.start_date)
     setEditingContractId(contract.id)
-    setOriginalStartDate(startStr)
     setFormData({
       tenantId: contract.tenantId?.toString() || contract.tenant?.id?.toString() || '',
       rentalSpaceId: String(contract.rentalSpaceId || contract.rental_space_id || contract.rentalSpace?.id || contract.rental_space?.id || ''),
@@ -240,7 +237,6 @@ function ContractsPageContent() {
     if (!isSubmitting) {
       setShowModal(false)
       setEditingContractId(null)
-      setOriginalStartDate('')
       setModalError(null)
       setModalSuccess(null)
     }
@@ -291,21 +287,6 @@ function ContractsPageContent() {
 
     if (!formData.rentalSpaceId) {
       setModalError('Please select a rental space.')
-      setIsSubmitting(false)
-      return
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0]
-
-    // Validate that start date is not in the past
-    if (!editingContractId && formData.startDate < todayStr) {
-      setModalError('Start date cannot be in the past.')
-      setIsSubmitting(false)
-      return
-    }
-
-    if (editingContractId && formData.startDate < todayStr && formData.startDate !== originalStartDate) {
-      setModalError('Start date cannot be set to a past date.')
       setIsSubmitting(false)
       return
     }
@@ -605,7 +586,6 @@ function ContractsPageContent() {
                         type="date"
                         name="startDate"
                         required
-                        min={editingContractId ? (originalStartDate && originalStartDate < new Date().toISOString().split('T')[0] ? originalStartDate : new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0]}
                         value={formData.startDate}
                         onChange={handleFormChange}
                         disabled={isSubmitting}
@@ -621,7 +601,6 @@ function ContractsPageContent() {
                         type="date"
                         name="endDate"
                         required
-                        min={formData.startDate || new Date().toISOString().split('T')[0]}
                         value={formData.endDate}
                         onChange={handleFormChange}
                         disabled={isSubmitting}
