@@ -90,12 +90,6 @@ export default function NewContractPage() {
       return
     }
 
-    const todayStr = new Date().toISOString().split('T')[0]
-    if (formData.startDate < todayStr) {
-      alert('Validation Error:\nStart date cannot be in the past.')
-      return
-    }
-
     if (formData.endDate && formData.endDate <= formData.startDate) {
       alert('Validation Error:\nEnd date must be after the start date.')
       return
@@ -228,7 +222,6 @@ export default function NewContractPage() {
                     type="date"
                     name="startDate"
                     value={formData.startDate}
-                    min={new Date().toISOString().split('T')[0]}
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -243,7 +236,6 @@ export default function NewContractPage() {
                     type="date"
                     name="endDate"
                     value={formData.endDate}
-                    min={formData.startDate || new Date().toISOString().split('T')[0]}
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
