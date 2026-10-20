@@ -10,6 +10,7 @@ import {
   Inbox,
   LoaderCircle,
   MessageSquareText,
+  RefreshCw,
   Search,
   Send,
   Smartphone,
@@ -65,6 +66,8 @@ export default function MessagesPage() {
   const [isSmsLoading, setIsSmsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
+  const [refreshingSmsId, setRefreshingSmsId] = useState<number | null>(null)
+  const [refreshError, setRefreshError] = useState('')
 
   const loadSmsMessages = useCallback(async () => {
     try {
@@ -104,6 +107,26 @@ export default function MessagesPage() {
 
   const openSmsMessage = (message: SmsHistoryItem) => {
     setSelectedSms(message)
+    setRefreshError('')
+  }
+
+  const refreshSelectedSmsStatus = async () => {
+    if (!selectedSms?.providerMessageId || refreshingSmsId !== null) return
+
+    setRefreshingSmsId(selectedSms.id)
+    setRefreshError('')
+    try {
+      const response = await apiClient.refreshSmsMessageStatus(selectedSms.id)
+      const refreshedMessage = unwrap(response) as SmsHistoryItem
+      setSelectedSms(refreshedMessage)
+      setSmsMessages((current) => current.map((message) =>
+        message.id === refreshedMessage.id ? refreshedMessage : message
+      ))
+    } catch (refreshFailure) {
+      setRefreshError(refreshFailure instanceof Error ? refreshFailure.message : 'Unable to refresh SMS delivery status.')
+    } finally {
+      setRefreshingSmsId(null)
+    }
   }
 
   const handleTabChange = (nextTab: WorkspaceTab) => {
@@ -253,11 +276,23 @@ export default function MessagesPage() {
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-800">{selectedSms.message}</p>
                 </div>
                 {selectedSms.errorMessage && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-rose-700">Delivery issue</p><p className="mt-2 text-sm leading-5 text-rose-900">{selectedSms.errorMessage}</p></div>}
+                {refreshError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{refreshError}</p>}
                 <div className="grid gap-4 rounded-xl border border-slate-200 p-4 sm:grid-cols-2">
                   <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Date sent</p><p className="mt-1.5 text-xs font-medium text-slate-700">{selectedSms.createdAt ? new Date(selectedSms.createdAt).toLocaleString() : 'Time unavailable'}</p></div>
                   <div><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Delivery status</p><p className="mt-1.5 text-xs font-medium capitalize text-slate-700">{selectedSms.status}</p></div>
                   {selectedSms.providerMessageId && <div className="sm:col-span-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Provider reference</p><p className="mt-1.5 break-all text-xs font-medium text-slate-700">{selectedSms.providerMessageId}</p></div>}
                 </div>
+                {selectedSms.providerMessageId && !isSuccessfulStatus(selectedSms.status) && !isFailedStatus(selectedSms.status) && (
+                  <button
+                    type="button"
+                    onClick={() => void refreshSelectedSmsStatus()}
+                    disabled={refreshingSmsId === selectedSms.id}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshingSmsId === selectedSms.id ? 'animate-spin' : ''}`} />
+                    {refreshingSmsId === selectedSms.id ? 'Checking status…' : 'Refresh delivery status'}
+                  </button>
+                )}
               </div>
             </section>
           </div>

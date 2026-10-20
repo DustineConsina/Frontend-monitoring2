@@ -407,6 +407,12 @@ class ApiClient {
     return this.request<any>('/sms-messages')
   }
 
+  async refreshSmsMessageStatus(id: number) {
+    return this.request<any>(`/sms-messages/${id}/refresh-status`, {
+      method: 'POST',
+    })
+  }
+
   async getConversationMessages(userId: string) {
     return this.request<any>(`/chat/messages/${encodeURIComponent(userId)}`)
   }
