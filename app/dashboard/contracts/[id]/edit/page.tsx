@@ -67,14 +67,12 @@ export default function EditContractPage() {
       })
 
       // Fetch tenants and spaces for dropdowns
-      const tenantsResponse = await apiClient.getTenants()
-      const spacesResponse = await apiClient.getRentalSpaces()
+      const [tenantsArray, spacesResponse] = await Promise.all([
+        apiClient.getAllTenants(),
+        apiClient.getRentalSpaces(),
+      ])
       
       // Handle paginated responses from Laravel
-      const tenantsArray = Array.isArray(tenantsResponse) 
-        ? tenantsResponse 
-        : (tenantsResponse.data?.data || tenantsResponse.data || [])
-      
       const spacesArray = Array.isArray(spacesResponse) 
         ? spacesResponse 
         : (spacesResponse.data?.data || spacesResponse.data || [])

@@ -38,14 +38,13 @@ export default function NewContractPage() {
     try {
       console.log('[FETCH START] Getting tenant and available rental spaces...')
       const [tenantsData, spacesData] = await Promise.all([
-        apiClient.getTenants(),
+        apiClient.getAllTenants(),
         apiClient.getAvailableRentalSpaces({ per_page: 1000 }), // Fetch ONLY available spaces
       ])
       
       console.log('[API RESPONSE] Received spacesData:', spacesData)
       
       // Handle paginated responses - extract actual arrays from nested structure
-      const tenantsArray = tenantsData.data?.data || tenantsData.data || []
       const availableSpaces = ((spacesData.data?.data || spacesData.data || []) as RentalSpace[]).filter((space) => {
         const fields = space as RentalSpace & { occupancyStatus?: string; occupancy_status?: string; active_contracts_count?: number; activeContractsCount?: number }
         const status = String(space.status || '').toLowerCase()
@@ -67,7 +66,7 @@ export default function NewContractPage() {
       
       console.log('✅ Setting spaces state to:', availableSpaces.length, 'available spaces')
       
-      setTenants(tenantsArray)
+      setTenants(tenantsData)
       setSpaces(availableSpaces)
     } catch (err: unknown) {
       console.error('❌ Error fetching data:', err)

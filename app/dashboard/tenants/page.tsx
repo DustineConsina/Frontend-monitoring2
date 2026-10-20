@@ -89,7 +89,6 @@ const getProfilePictureUrl = (tenant: any) => {
 }
 
 const FIXED_BUSINESS_ADDRESS = 'Pier 2, Zone 4, Bulan Sorsogon'
-const TENANT_API_PAGE_SIZE = 100
 
 const formatBusinessPermitNumber = (value: string) => {
   const digitsOnly = value.replace(/\D/g, '').slice(0, 12)
@@ -132,35 +131,7 @@ export default function TenantsPage() {
 
   const fetchTenants = async () => {
     try {
-      const tenantList: any[] = []
-      let page = 1
-
-      while (true) {
-        const response = await apiClient.getTenants({ per_page: TENANT_API_PAGE_SIZE, page })
-        const pageData = response.data?.data ?? response.data
-
-        if (Array.isArray(pageData)) {
-          tenantList.push(...pageData)
-          break
-        }
-
-        if (!Array.isArray(pageData?.data)) {
-          throw new Error('The server returned an invalid tenant list.')
-        }
-
-        tenantList.push(...pageData.data)
-
-        const lastPage = Number(pageData.lastPage ?? pageData.last_page)
-        if (Number.isFinite(lastPage) && lastPage > 0) {
-          if (page >= lastPage) break
-        } else if (pageData.data.length < TENANT_API_PAGE_SIZE) {
-          break
-        }
-
-        page += 1
-      }
-
-      setTenants(tenantList)
+      setTenants(await apiClient.getAllTenants())
       setCurrentPage(1)
       setError(null)
     } catch (err: any) {

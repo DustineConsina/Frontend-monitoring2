@@ -1,4 +1,6 @@
 // API Client for communicating with backend
+import type { User } from '@/types'
+
 const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || (
   process.env.NODE_ENV === 'production'
     ? 'https://backend-monitoring2.onrender.com/api'
@@ -611,6 +613,37 @@ class ApiClient {
   async getTenants(params?: any) {
     const query = params ? `?${new URLSearchParams(params)}` : ''
     return this.request<any>(`/tenants${query}`)
+  }
+
+  async getAllTenants(): Promise<User[]> {
+    const pageSize = 100
+    const tenants: User[] = []
+    let page = 1
+
+    while (true) {
+      const response = await this.getTenants({ per_page: pageSize, page })
+      const pageData = response.data?.data ?? response.data
+
+      if (Array.isArray(pageData)) {
+        tenants.push(...pageData)
+        return tenants
+      }
+
+      if (!Array.isArray(pageData?.data)) {
+        throw new Error('The server returned an invalid tenant list.')
+      }
+
+      tenants.push(...pageData.data)
+
+      const lastPage = Number(pageData.lastPage ?? pageData.last_page)
+      if (Number.isFinite(lastPage) && lastPage > 0) {
+        if (page >= lastPage) return tenants
+      } else if (pageData.data.length < pageSize) {
+        return tenants
+      }
+
+      page += 1
+    }
   }
 
   async getTenant(id: string) {

@@ -177,14 +177,13 @@ function ContractsPageContent() {
   const fetchModalData = async () => {
     try {
       const [tenantsRes, spacesRes] = await Promise.all([
-        apiClient.getTenants(),
+        apiClient.getAllTenants(),
         apiClient.getRentalSpaces(),
       ])
       
-      const tenantsArray = tenantsRes.data?.data || tenantsRes.data || []
       const spacesArray = spacesRes.data?.data || spacesRes.data || []
       
-      setTenants(tenantsArray)
+      setTenants(tenantsRes)
       setSpaces(spacesArray)
     } catch (err: any) {
       setModalError('Failed to load form data')
