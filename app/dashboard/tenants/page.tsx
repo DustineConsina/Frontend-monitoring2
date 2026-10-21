@@ -95,6 +95,17 @@ const formatBusinessPermitNumber = (value: string) => {
   return digitsOnly.match(/.{1,4}/g)?.join('-') || ''
 }
 
+const sortTenantsByCreationOrder = <T extends { id?: string | number; createdAt?: string; created_at?: string }>(tenants: T[]) =>
+  [...tenants].sort((a, b) => {
+    const idDifference = Number(a.id) - Number(b.id)
+    if (Number.isFinite(idDifference) && idDifference !== 0) return idDifference
+
+    const createdAtDifference = Date.parse(a.createdAt || a.created_at || '') - Date.parse(b.createdAt || b.created_at || '')
+    if (Number.isFinite(createdAtDifference) && createdAtDifference !== 0) return createdAtDifference
+
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true })
+  })
+
 export default function TenantsPage() {
   const router = useRouter()
   const { user } = useAuth()
@@ -129,10 +140,11 @@ export default function TenantsPage() {
     fetchTenants()
   }, [])
 
-  const fetchTenants = async () => {
+  const fetchTenants = async (showLastPage = false) => {
     try {
-      setTenants(await apiClient.getAllTenants())
-      setCurrentPage(1)
+      const fetchedTenants = sortTenantsByCreationOrder(await apiClient.getAllTenants())
+      setTenants(fetchedTenants)
+      setCurrentPage(showLastPage ? Math.max(1, Math.ceil(fetchedTenants.length / 10)) : 1)
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to load tenants')
@@ -244,7 +256,7 @@ export default function TenantsPage() {
       })
 
       // Refresh tenants list
-      await fetchTenants()
+      await fetchTenants(true)
 
     } catch (err: any) {
       const validationErrors = err.errors && typeof err.errors === 'object'
