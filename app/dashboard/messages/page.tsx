@@ -68,6 +68,7 @@ export default function MessagesPage() {
   const [error, setError] = useState('')
   const [refreshingSmsId, setRefreshingSmsId] = useState<number | null>(null)
   const [refreshError, setRefreshError] = useState('')
+  const [unreadComplaintCount, setUnreadComplaintCount] = useState(0)
 
   const loadSmsMessages = useCallback(async () => {
     try {
@@ -81,6 +82,17 @@ export default function MessagesPage() {
     }
   }, [])
 
+  const loadUnreadComplaintCount = useCallback(async () => {
+    try {
+      const response = await apiClient.getUnreadComplaintCount()
+      const data = unwrap(response)
+      const count = Number(data?.count ?? 0)
+      setUnreadComplaintCount(Number.isFinite(count) ? count : 0)
+    } catch (loadError) {
+      console.error('Unable to load unread complaint count:', loadError)
+    }
+  }, [])
+
   useEffect(() => {
     void loadSmsMessages()
     const refreshTimer = window.setInterval(() => {
@@ -89,6 +101,15 @@ export default function MessagesPage() {
 
     return () => window.clearInterval(refreshTimer)
   }, [loadSmsMessages])
+
+  useEffect(() => {
+    void loadUnreadComplaintCount()
+    const refreshTimer = window.setInterval(() => {
+      void loadUnreadComplaintCount()
+    }, 15000)
+
+    return () => window.clearInterval(refreshTimer)
+  }, [loadUnreadComplaintCount])
 
   const filteredSmsMessages = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -133,6 +154,7 @@ export default function MessagesPage() {
     setTab(nextTab)
     setSelectedSms(null)
     setError('')
+    if (nextTab === 'complaints') void loadUnreadComplaintCount()
   }
 
   return (
@@ -169,7 +191,7 @@ export default function MessagesPage() {
           <button
             type="button"
             onClick={() => handleTabChange('messages')}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${tab === 'messages' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/80 hover:shadow-sm ${tab === 'messages' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             aria-current={tab === 'messages' ? 'page' : undefined}
           >
             <Send className="h-4 w-4" />
@@ -179,15 +201,22 @@ export default function MessagesPage() {
           <button
             type="button"
             onClick={() => handleTabChange('complaints')}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${tab === 'complaints' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/80 hover:shadow-sm ${tab === 'complaints' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             aria-current={tab === 'complaints' ? 'page' : undefined}
           >
             <Inbox className="h-4 w-4" />
             Complaints
+            <span
+              className={`rounded-full px-1.5 py-0.5 text-[10px] ${unreadComplaintCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-600'}`}
+              aria-label={`${unreadComplaintCount} unread complaints`}
+              aria-live="polite"
+            >
+              {unreadComplaintCount > 99 ? '99+' : unreadComplaintCount}
+            </span>
           </button>
         </nav>
 
-        {tab === 'complaints' ? <ComplaintsPanel /> : (
+        {tab === 'complaints' ? <ComplaintsPanel onUnreadCountChange={loadUnreadComplaintCount} /> : (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="flex items-center gap-3">

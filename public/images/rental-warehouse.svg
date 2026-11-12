@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" fill="none">
+  <defs>
+    <linearGradient id="sky" x1="600" y1="0" x2="600" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E0F2FE"/>
+      <stop offset="1" stop-color="#F1F5F9"/>
+    </linearGradient>
+    <linearGradient id="building" x1="600" y1="236" x2="600" y2="624" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#CBD5E1"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h1200v700H0z"/>
+  <path fill="#FDE68A" d="M1033 99a54 54 0 1 1-108 0 54 54 0 0 1 108 0Z"/>
+  <path fill="#94A3B8" d="M0 585h1200v115H0z"/>
+  <path fill="#334155" d="M90 280h1020v344H90z"/>
+  <path fill="url(#building)" d="M132 310h936v314H132z"/>
+  <path fill="#475569" d="m78 281 522-188 522 188v43H78v-43Z"/>
+  <path fill="#0F766E" d="m105 279 495-174 495 174v16H105v-16Z"/>
+  <path fill="#334155" d="M177 353h846v21H177z"/>
+  <path fill="#CBD5E1" d="M196 374h808v19H196z"/>
+  <path fill="#64748B" d="M350 393h500v231H350z"/>
+  <path fill="#334155" d="M374 415h452v209H374z"/>
+  <path fill="#F8FAFC" d="M411 450h378v174H411z"/>
+  <path fill="#94A3B8" d="M436 473h328v151H436z"/>
+  <path fill="#E2E8F0" d="M454 490h292v134H454z"/>
+  <path fill="#0F766E" d="M454 490h292v17H454z"/>
+  <path fill="#475569" d="M208 411h106v88H208zM886 411h106v88H886z"/>
+  <path fill="#BAE6FD" d="M220 423h82v64h-82zM898 423h82v64h-82z"/>
+  <path fill="#64748B" d="M129 624h942v24H129z"/>
+  <path fill="#475569" d="M84 648h1032v19H84z"/>
+  <path fill="#F97316" d="M86 553h92v15H86zM1022 553h92v15h-92z"/>
+</svg>

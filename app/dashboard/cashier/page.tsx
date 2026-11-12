@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useAuth } from '@/contexts/AuthContext'
 
 function CashierAnalyticsPanel({
   title,
@@ -100,6 +101,7 @@ function parseAmount(value: string | number | null | undefined): number {
 }
 
 export default function CashierDashboard() {
+  const { user } = useAuth()
   const [todaysData, setTodaysData] = useState<TodaysCollection | null>(null)
   const [collectibles, setCollectibles] = useState<CollectiblePayment[]>([])
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue' | 'paid'>('all')
@@ -180,12 +182,7 @@ export default function CashierDashboard() {
     }
   }
 
-  useEffect(() => {
-    loadCashierData()
-    loadPaymentTrends()
-  }, [filterStatus, trendYear, collectionPeriod])
-
-  const loadPaymentTrends = async () => {
+  const loadPaymentTrends = useCallback(async () => {
     try {
       // Get payment reports from the last 6 months
       const response = await apiClient.get('/reports/payments?status=all')
@@ -249,16 +246,16 @@ export default function CashierDashboard() {
       
       console.log('Payment trends loaded:', trends)
       setPaymentTrends(trends)
-      if (!trends.some((trend) => trend.month === trendMonth)) {
-        setTrendMonth(trends[trends.length - 1]?.month || '')
-      }
+      setTrendMonth((currentMonth) => trends.some((trend) => trend.month === currentMonth)
+        ? currentMonth
+        : trends[trends.length - 1]?.month || '')
     } catch (error) {
       console.error('Error loading payment trends:', error)
       setPaymentTrends([])
     }
-  }
+  }, [collectionPeriod, trendYear])
 
-  const loadCashierData = async () => {
+  const loadCashierData = useCallback(async () => {
     try {
       setLoading(true)
       const [todaysRes, collectiblesRes] = await Promise.all([
@@ -295,7 +292,14 @@ export default function CashierDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filterStatus])
+
+  useEffect(() => {
+    if (user?.role?.toUpperCase() !== 'CASHIER') return
+
+    loadCashierData()
+    loadPaymentTrends()
+  }, [loadCashierData, loadPaymentTrends, user?.role])
 
   const clampPaymentAmount = (rawValue: string, maxAllowed: number) => {
     const parsedValue = Number.parseFloat(rawValue)

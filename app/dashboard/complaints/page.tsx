@@ -49,7 +49,7 @@ const categoryLabel = (category?: string) => ({
   other: 'Other',
 }[category || 'other'] || 'Other')
 
-export function ComplaintsPanel() {
+export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?: () => Promise<void> }) {
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -124,6 +124,7 @@ export function ComplaintsPanel() {
       setComplaints((current) => current.map((item) => String(item.id) === String(complaint.id)
         ? { ...item, admin_read: true, adminRead: true }
         : item))
+      void onUnreadCountChange?.()
     } catch {
       // Keep the request open even if the read marker cannot be saved.
     }
