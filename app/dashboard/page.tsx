@@ -72,6 +72,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [tenantStatusCounts, setTenantStatusCounts] = useState({ active: 0, inactive: 0, blacklisted: 0 })
 
   useEffect(() => {
     let isMounted = true
@@ -96,10 +97,11 @@ export default function DashboardPage() {
       if (!isMounted || !localStorage.getItem('auth_token')) return
 
       setIsRefreshing(true)
-      const [statsResult, contractsResult, paymentsResult] = await Promise.allSettled([
+      const [statsResult, contractsResult, paymentsResult, tenantsResult] = await Promise.allSettled([
         apiClient.getDashboardStats(),
         apiClient.getContracts({ per_page: 1000 }),
         apiClient.getPayments(undefined, { per_page: 1000 }),
+        apiClient.getAllTenants(),
       ])
       if (!isMounted) return
 
@@ -107,6 +109,16 @@ export default function DashboardPage() {
       setStats(statsResult.value)
       if (contractsResult.status === 'fulfilled') setContracts(extractDashboardList<Contract>(contractsResult.value))
       if (paymentsResult.status === 'fulfilled') setPayments(extractDashboardList<Payment>(paymentsResult.value))
+      if (tenantsResult.status === 'fulfilled') {
+        const counts = { active: 0, inactive: 0, blacklisted: 0 }
+        for (const tenant of tenantsResult.value || []) {
+          const status = String((tenant as any)?.status || (tenant as any)?.user?.status || 'active').toLowerCase()
+          if (status.includes('blacklist')) counts.blacklisted += 1
+          else if (status.includes('inactive')) counts.inactive += 1
+          else counts.active += 1
+        }
+        setTenantStatusCounts(counts)
+      }
       setLastUpdated(new Date())
       setError(null)
     } catch (err: unknown) {
@@ -223,18 +235,37 @@ export default function DashboardPage() {
             <ChartLegend items={[['#087f8c', 'Current'], ['#cbd7da', 'Previous period']]} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Total Tenant" subtitle="Registered tenants" action="View" href="/dashboard/tenants">
+          <AnalyticsPanel title="Total Tenant" subtitle="Tenant status breakdown" action="View" href="/dashboard/tenants">
             <div className="relative flex items-center justify-center py-2">
               <ResponsiveContainer width="100%" height={190}>
                 <PieChart>
-                  <Pie data={[{ name: 'Active contracts', value: stats?.activeContracts || 0 }, { name: 'Other contracts', value: Math.max((stats?.totalContracts || 0) - (stats?.activeContracts || 0), 0) }]} innerRadius={52} outerRadius={70} paddingAngle={3} dataKey="value">
+                  <Pie
+                    data={[
+                      { name: 'Active', value: tenantStatusCounts.active },
+                      { name: 'Inactive', value: tenantStatusCounts.inactive },
+                      { name: 'Blacklisted', value: tenantStatusCounts.blacklisted },
+                    ]}
+                    innerRadius={52}
+                    outerRadius={70}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
                     <Cell fill="#087f8c" />
-                    <Cell fill="#cbd7da" />
+                    <Cell fill="#94a3b8" />
+                    <Cell fill="#b94755" />
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute text-center"><div className="text-2xl font-bold text-slate-900">{stats?.totalTenants || 0}</div><div className="text-[10px] font-medium text-slate-500">Tenants</div></div>
+              <div className="pointer-events-none absolute text-center">
+                <div className="text-2xl font-bold text-slate-900">{tenantStatusCounts.active + tenantStatusCounts.inactive + tenantStatusCounts.blacklisted}</div>
+                <div className="text-[10px] font-medium text-slate-500">Tenants</div>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-slate-500">
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#087f8c' }} />Active {tenantStatusCounts.active}</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#94a3b8' }} />Inactive {tenantStatusCounts.inactive}</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#b94755' }} />Blacklisted {tenantStatusCounts.blacklisted}</span>
             </div>
           </AnalyticsPanel>
 
