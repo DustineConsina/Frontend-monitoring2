@@ -229,15 +229,14 @@ export default function DashboardPage() {
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-800"><Banknote className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Total revenue</p>
-                <p className="mt-1 truncate text-xl font-bold tracking-tight text-slate-900">{formatDashboardAmount(stats?.totalRevenue)}</p>
-                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">This month</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paid this month</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paid</p>
                     <p className="mt-0.5 text-sm font-bold text-teal-800">{formatDashboardAmount(monthlyPaid)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Needed monthly</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Needed</p>
                     <p className="mt-0.5 text-sm font-bold text-slate-900">{formatDashboardAmount(monthlyNeeded)}</p>
                   </div>
                 </div>
