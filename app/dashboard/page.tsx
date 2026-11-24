@@ -155,6 +155,24 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .slice(0, 6)
 
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthlyPaid = payments
+    .filter((p) => {
+      const status = String(p.status || '').toLowerCase().replace(/\s+/g, '_')
+      return ['paid', 'partial', 'partially_paid'].includes(status) && String(p.dueDate || p.due_date || '').slice(0, 7) === currentMonth
+    })
+    .reduce((sum, p) => {
+      const status = String(p.status || '').toLowerCase().replace(/\s+/g, '_')
+      const amountPaid = Number.parseFloat(String(p.amountPaid || p.amount_paid || 0)) || 0
+      const settledAmount = amountPaid || (status === 'paid' ? Number.parseFloat(String(p.totalAmount || p.total_amount || p.amountDue || p.amount_due || 0)) || 0 : 0)
+      return sum + settledAmount
+    }, 0)
+  const monthlyNeeded = payments
+    .filter((p) => String(p.dueDate || p.due_date || '').slice(0, 7) === currentMonth)
+    .reduce((sum, p) => sum + (Number.parseFloat(String(p.totalAmount || p.total_amount || p.amountDue || p.amount_due || 0)) || 0), 0)
+  const monthlyPaidRatio = monthlyNeeded > 0 ? Math.min((monthlyPaid / monthlyNeeded) * 100, 100) : 0
+
   if (isLoading) {
     return (
       <ProtectedRoute>
@@ -218,8 +236,29 @@ export default function DashboardPage() {
         </section>
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_0.85fr]">
-          <AnalyticsPanel title="Total Revenue" subtitle="Revenue from recent payments" action="View Report" href="/dashboard/reports">
+          <AnalyticsPanel title="Total Revenue" subtitle="Overall revenue and monthly collection" action="View Report" href="/dashboard/reports">
             <div className="mb-3 text-2xl font-bold tracking-tight text-slate-900">{formatDashboardAmount(stats?.totalRevenue)}</div>
+            <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Paid this month</p>
+                  <p className="mt-1 text-sm font-bold text-teal-800">{formatDashboardAmount(monthlyPaid)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Needed to pay monthly</p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{formatDashboardAmount(monthlyNeeded)}</p>
+                </div>
+              </div>
+              <div className="mt-3">
+                <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                  <span>Collection progress</span>
+                  <span>{monthlyNeeded > 0 ? `${Math.round((monthlyPaid / monthlyNeeded) * 100)}%` : '0%'}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-teal-700 transition-all" style={{ width: `${monthlyPaidRatio}%` }} />
+                </div>
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({
                 label: payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-US', { month: 'short' }) : `P${index + 1}`,
