@@ -173,6 +173,20 @@ export default function DashboardPage() {
     .reduce((sum, p) => sum + (Number.parseFloat(String(p.totalAmount || p.total_amount || p.amountDue || p.amount_due || 0)) || 0), 0)
   const monthlyPaidRatio = monthlyNeeded > 0 ? Math.min((monthlyPaid / monthlyNeeded) * 100, 100) : 0
 
+  const revenueByMonth = new Map<string, { label: string; sortKey: string; current: number }>()
+  for (const payment of stats?.recentPayments || []) {
+    const rawDate = payment.paymentDate || payment.payment_date || payment.dueDate || payment.due_date || payment.createdAt || payment.created_at
+    const date = rawDate ? new Date(rawDate) : null
+    if (!date || Number.isNaN(date.getTime())) continue
+    const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const label = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    const amount = parseDashboardAmount(payment.totalAmount ?? payment.total_amount ?? payment.amount ?? payment.amountPaid ?? payment.amount_paid) ?? 0
+    const existing = revenueByMonth.get(sortKey)
+    if (existing) existing.current += amount
+    else revenueByMonth.set(sortKey, { label, sortKey, current: amount })
+  }
+  const monthlyRevenueChartData = Array.from(revenueByMonth.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+
   if (isLoading) {
     return (
       <ProtectedRoute>
@@ -211,7 +225,25 @@ export default function DashboardPage() {
 
         <section aria-label="Dashboard summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <SummaryMetric icon={<FileText className="h-4 w-4" />} label="Active contracts" value={stats?.activeContracts || 0} />
-          <SummaryMetric icon={<Banknote className="h-4 w-4" />} label="Total revenue" value={formatDashboardAmount(stats?.totalRevenue)} />
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-800"><Banknote className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Total revenue</p>
+                <p className="mt-1 truncate text-xl font-bold tracking-tight text-slate-900">{formatDashboardAmount(stats?.totalRevenue)}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paid this month</p>
+                    <p className="mt-0.5 text-sm font-bold text-teal-800">{formatDashboardAmount(monthlyPaid)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Needed monthly</p>
+                    <p className="mt-0.5 text-sm font-bold text-slate-900">{formatDashboardAmount(monthlyNeeded)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           <SummaryMetric icon={<Users className="h-4 w-4" />} label="Tenants" value={stats?.totalTenants || 0} />
         </section>
 
@@ -236,34 +268,10 @@ export default function DashboardPage() {
         </section>
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_0.85fr]">
-          <AnalyticsPanel title="Total Revenue" subtitle="Overall revenue and monthly collection" action="View Report" href="/dashboard/reports">
+          <AnalyticsPanel title="Total Revenue" subtitle="Monthly revenue from recent payments" action="View Report" href="/dashboard/reports">
             <div className="mb-3 text-2xl font-bold tracking-tight text-slate-900">{formatDashboardAmount(stats?.totalRevenue)}</div>
-            <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Paid this month</p>
-                  <p className="mt-1 text-sm font-bold text-teal-800">{formatDashboardAmount(monthlyPaid)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Needed to pay monthly</p>
-                  <p className="mt-1 text-sm font-bold text-slate-900">{formatDashboardAmount(monthlyNeeded)}</p>
-                </div>
-              </div>
-              <div className="mt-3">
-                <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-slate-500">
-                  <span>Collection progress</span>
-                  <span>{monthlyNeeded > 0 ? `${Math.round((monthlyPaid / monthlyNeeded) * 100)}%` : '0%'}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                  <div className="h-full rounded-full bg-teal-700 transition-all" style={{ width: `${monthlyPaidRatio}%` }} />
-                </div>
-              </div>
-            </div>
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({
-                label: payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-US', { month: 'short' }) : `P${index + 1}`,
-                current: parseDashboardAmount(payment.totalAmount ?? payment.amount) ?? 0,
-              }))}>
+              <BarChart data={monthlyRevenueChartData}>
                 <CartesianGrid stroke="#eef0f5" vertical={false} strokeDasharray="3 4" />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#a3a9b8', fontSize: 10 }} />
                 <YAxis hide />
@@ -271,7 +279,7 @@ export default function DashboardPage() {
                 <Bar dataKey="current" fill="#087f8c" radius={[2, 2, 0, 0]} barSize={12} />
               </BarChart>
             </ResponsiveContainer>
-            <ChartLegend items={[['#087f8c', 'Current'], ['#cbd7da', 'Previous period']]} />
+            <ChartLegend items={[['#087f8c', 'Revenue']]} />
           </AnalyticsPanel>
 
           <AnalyticsPanel title="Total Tenant" subtitle="Tenant status breakdown" action="View" href="/dashboard/tenants">
