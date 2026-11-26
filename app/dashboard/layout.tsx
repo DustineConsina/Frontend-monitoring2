@@ -328,7 +328,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-[#eef3f2] text-[#142b32]">
+    <div className="dashboard-shell flex h-screen overflow-hidden bg-[#eef3f2] text-[#142b32]">
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-[17rem] border-r border-[#214d56] bg-[linear-gradient(180deg,#102f36_0%,#091f25_100%)] shadow-[18px_0_40px_rgba(15,34,43,0.18)] transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -394,8 +394,8 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="relative z-50 flex min-h-16 shrink-0 items-center border-b border-[#d5e1df] bg-white px-4 shadow-[0_8px_24px_rgba(18,34,43,0.08)] lg:px-8">
+      <div className="dashboard-content flex flex-1 flex-col overflow-hidden">
+        <header className="relative z-40 flex min-h-16 shrink-0 items-center border-b border-[#d5e1df] bg-white px-4 shadow-[0_8px_24px_rgba(18,34,43,0.08)] lg:px-8">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className="mr-4 rounded-lg border border-[#e5e9ef] bg-[#f8fafc] p-2 text-[#6c7b8c] transition hover:bg-[#edf2f7] lg:hidden"
@@ -589,7 +589,7 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <main className="relative z-0 flex-1 overflow-y-auto bg-transparent p-5 lg:p-8">
+        <main className="dashboard-main flex-1 overflow-y-auto bg-transparent p-5 lg:p-8">
           {children}
         </main>
       </div>

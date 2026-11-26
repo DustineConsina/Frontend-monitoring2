@@ -132,8 +132,8 @@ const getErrorMessage = (error: unknown, fallback: string) => (error instanceof 
 const buildOriginFromIp = (protocol: string, ipAddress: string, port: string) =>
   `${protocol}//${ipAddress}${port ? `:${port}` : ''}`
 
-const getQrTargetUrl = (tenantId: string, baseUrl: string) => {
-  return `${stripTrailingSlash(baseUrl)}/tenant-scan/${encodeURIComponent(tenantId)}`
+const getQrTargetUrl = (qrToken: string, baseUrl: string) => {
+  return `${stripTrailingSlash(baseUrl)}/tenant-scan/${encodeURIComponent(qrToken)}`
 }
 
 function TenantBulkQRPrintPageContent() {
@@ -278,7 +278,8 @@ function TenantBulkQRPrintPageContent() {
               return null
             }
 
-            const qrTargetUrl = getQrTargetUrl(tenantId, qrBaseUrl)
+            const { token } = await apiClient.getTenantQrToken(tenantId)
+            const qrTargetUrl = getQrTargetUrl(token, qrBaseUrl)
             // Generate crisp high-resolution QR code
             const tenantQrCode = isScanMode
               ? undefined

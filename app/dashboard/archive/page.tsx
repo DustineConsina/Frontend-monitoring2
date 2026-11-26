@@ -44,8 +44,8 @@ export default function ArchivePage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [paymentPage, setPaymentPage] = useState(1)
 
-  const loadArchive = useCallback(async () => {
-    setIsLoading(true)
+  const loadArchive = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true)
     setError(null)
 
     try {
@@ -61,7 +61,7 @@ export default function ArchivePage() {
       setContracts([])
       setError(err.message || 'Unable to load archived records')
     } finally {
-      setIsLoading(false)
+      if (showLoading) setIsLoading(false)
     }
   }, [status])
 
@@ -87,7 +87,7 @@ export default function ArchivePage() {
 
   useEffect(() => {
     void loadArchive()
-    const interval = window.setInterval(() => void loadArchive(), 30000)
+    const interval = window.setInterval(() => void loadArchive(false), 30000)
     return () => window.clearInterval(interval)
   }, [loadArchive])
 
@@ -149,7 +149,7 @@ export default function ArchivePage() {
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold tabular-nums text-slate-600">{contracts.length} records</span>
           </div>
           {isLoading ? (
-            <div className="flex h-48 items-center justify-center gap-3 text-sm text-slate-500"><span className="loading-spinner" aria-hidden="true" />Loading contracts...</div>
+            <div className="flex h-48 items-center justify-center" role="status" aria-label="Loading archived contracts"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only">Loading archived contracts...</span></div>
           ) : visibleContracts.length === 0 ? (
             <div className="flex min-h-48 flex-col items-center justify-center px-4 text-center">
               <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400"><Archive className="h-5 w-5" /></span>
@@ -218,7 +218,7 @@ export default function ArchivePage() {
           </div>
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {isLoading ? (
-              <div className="flex h-32 items-center justify-center gap-3 text-sm text-slate-500"><span className="loading-spinner" aria-hidden="true" />Loading archived payments...</div>
+              <div className="h-32" aria-hidden="true" />
             ) : payments.length === 0 ? (
               <div className="flex min-h-36 flex-col items-center justify-center px-4 text-center">
                 <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-400"><CreditCard className="h-5 w-5" /></span>

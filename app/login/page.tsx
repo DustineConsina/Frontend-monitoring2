@@ -70,6 +70,9 @@ export default function LoginPage() {
               <h1 className="text-3xl font-black tracking-tight text-[#0f1c2d]">Contract Management</h1>
               <p className="mt-2 text-sm text-slate-600">Philippine Fisheries Development Authority</p>
               <p className="mt-1 text-xs text-slate-500">Bulan, Sorsogon Fish Port</p>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Administrator and staff sign-in. Tenants can access their information by scanning their PFDA QR code.
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">

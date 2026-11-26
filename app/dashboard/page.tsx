@@ -300,10 +300,10 @@ export default function DashboardPage() {
                     <Cell fill="#94a3b8" />
                     <Cell fill="#b94755" />
                   </Pie>
-                  <Tooltip />
+                  <Tooltip position={{ x: 8, y: 8 }} wrapperStyle={{ pointerEvents: 'none', zIndex: 20 }} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute text-center">
+              <div className="pointer-events-none absolute z-10 flex h-24 w-24 flex-col items-center justify-center rounded-full bg-white text-center">
                 <div className="text-2xl font-bold text-slate-900">{tenantStatusCounts.active + tenantStatusCounts.inactive + tenantStatusCounts.blacklisted}</div>
                 <div className="text-[10px] font-medium text-slate-500">Tenants</div>
               </div>

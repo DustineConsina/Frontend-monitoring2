@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { showGlobalNotice } from '@/lib/global-notice'
 import { statusColorClass } from '@/lib/status-colors'
-import { AlertTriangle, ArrowRight, BarChart3, CalendarClock, ClipboardList, CreditCard, Download, FileSpreadsheet, FileText, Filter, LoaderCircle, Users } from 'lucide-react'
+import { AlertTriangle, ArrowRight, BarChart3, CalendarClock, ClipboardList, CreditCard, Download, FileSpreadsheet, FileText, Filter, Users } from 'lucide-react'
 
 function reportDate(value: unknown): string {
   if (!value) return 'Date unavailable'
@@ -1488,7 +1488,7 @@ export default function ReportsPage() {
                       className="group inline-flex min-w-[148px] items-center gap-3 rounded-xl border border-rose-200 bg-white px-3.5 py-2.5 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-100 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700 transition group-hover:bg-rose-200">
-                        {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                        {isExporting ? <span className="loading-spinner" aria-hidden="true" /> : <FileText className="h-4 w-4" />}
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-bold text-rose-900">{isExporting ? 'Preparing file…' : 'Export PDF'}</span>
@@ -1504,7 +1504,7 @@ export default function ReportsPage() {
                       className="group inline-flex min-w-[148px] items-center gap-3 rounded-xl border border-emerald-200 bg-white px-3.5 py-2.5 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-100 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 transition group-hover:bg-emerald-200">
-                        {isExporting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                        {isExporting ? <span className="loading-spinner" aria-hidden="true" /> : <FileSpreadsheet className="h-4 w-4" />}
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-bold text-emerald-900">{isExporting ? 'Preparing file…' : 'Export CSV'}</span>

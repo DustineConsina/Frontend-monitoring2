@@ -32,6 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const response = await apiClient.getCurrentUser()
         // Extract user from response structure { success: true, user: {...} }
         const userData = response.user || response.data || response
+
+        if (String(userData.role).toUpperCase() === 'TENANT') {
+          apiClient.clearToken()
+          return
+        }
         
         // Map backend user fields to frontend User type
         const mappedUser = {
@@ -58,10 +63,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response = await apiClient.login(email, password)
-      apiClient.setToken(response.token)
-      
       // Map backend user fields to frontend User type
       const userData = response.user
+      if (String(userData?.role).toUpperCase() === 'TENANT') {
+        throw new Error('Tenant access is available by scanning the PFDA QR code.')
+      }
+
+      apiClient.setToken(response.token)
       const mappedUser = {
         id: userData.id,
         name: userData.name,
@@ -74,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       setUser(mappedUser)
-      router.push(mappedUser.role?.toUpperCase() === 'TENANT' ? '/tenant/dashboard' : '/dashboard')
+      router.push('/dashboard')
     } catch (error: any) {
       console.error('Login failed:', error)
       // Get the actual error message

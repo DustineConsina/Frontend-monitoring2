@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -124,61 +124,38 @@ function InfoRow({ label, value }: { label: string; value?: string | null }) {
 function TenantScanContent() {
   const params = useParams()
   const searchParams = useSearchParams()
-  const tenantId = params?.id as string
+  const qrToken = params?.id as string
   const isAdminView = searchParams?.get('admin') === '1'
 
   const [tenant, setTenant] = useState<TenantPublic | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [accessCode, setAccessCode] = useState('')
-  const [isVerifying, setIsVerifying] = useState(false)
   const [currentSlide, setCurrentSlide] = useState(0)
   const [paymentSlides, setPaymentSlides] = useState<Record<number, number>>({})
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
+  const [complaintCategory, setComplaintCategory] = useState('other')
+  const [complaintSubject, setComplaintSubject] = useState('')
+  const [complaintMessage, setComplaintMessage] = useState('')
+  const [complaintSuccess, setComplaintSuccess] = useState('')
+  const [complaintError, setComplaintError] = useState('')
+  const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false)
 
-  const loadTenant = async (event?: React.FormEvent<HTMLFormElement>) => {
-    if (event) {
-      event.preventDefault()
-    }
-
-    if (!tenantId) {
-      setFetchError('Tenant not found.')
-      return
-    }
-
-    if (!isAdminView && !/^\d{8}$/.test(accessCode)) {
-      setFetchError('Enter the 8-digit tenant QR password.')
-      return
-    }
-
-    const controller = new AbortController()
+  const handleVerifyQrPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setIsLoading(true)
-    setIsVerifying(true)
     setFetchError(null)
 
     try {
-      const endpoint = `/api/tenant-scan/${encodeURIComponent(tenantId)}`
-      const payload = isAdminView
-        ? { admin_bypass: true }
-        : {
-            access_code: accessCode,
-            qr_access_code: accessCode,
-          }
-
-      const authToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-
-      if (authToken) {
-        headers.Authorization = `Bearer ${authToken}`
-      } else if (isAdminView) {
-        throw new Error('Your admin session has expired. Please log in again.')
+      if (!qrToken) {
+        throw new Error('This QR code is invalid or incomplete.')
       }
 
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/tenant-scan', {
         method: 'POST',
-        signal: controller.signal,
-        headers,
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: qrToken, access_code: accessCode }),
+        cache: 'no-store',
       })
 
       const rawText = await response.text()
@@ -195,12 +172,11 @@ function TenantScanContent() {
         throw new Error(json?.message || json?.error || `Server error ${response.status}`)
       }
 
-      const responseBody = json?.data ?? json
-      if (!responseBody) {
-        throw new Error('Tenant not found')
+      const tenantData = json?.data ?? json
+      if (!tenantData || typeof tenantData !== 'object') {
+        throw new Error('Tenant information was not returned.')
       }
 
-      const tenantData = isAdminView ? responseBody : responseBody
       const contracts = Array.isArray(tenantData.contracts)
         ? tenantData.contracts.map((contract: any) => ({
             ...contract,
@@ -209,7 +185,7 @@ function TenantScanContent() {
             end_date: contract.endDate || contract.end_date,
             monthly_rental: contract.monthlyRental || contract.monthly_rental,
             rental_space: contract.rentalSpace || contract.rental_space,
-              payments: Array.isArray(contract.payments) ? contract.payments : [],
+            payments: Array.isArray(contract.payments) ? contract.payments : [],
           }))
         : []
 
@@ -224,31 +200,64 @@ function TenantScanContent() {
         profile_picture_url: getProfilePictureUrl(tenantData.profilePictureUrl || tenantData.profile_picture_url || tenantData.profilePicture || tenantData.profile_picture),
         contracts,
       })
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        const isNetworkError = err instanceof TypeError && /fetch|network|failed/i.test(err.message || '')
-        setFetchError(
-          isNetworkError
-            ? 'Unable to connect to the backend from this device. Start the backend on 0.0.0.0:8000 and allow port 8000 through Windows Firewall.'
-            : err?.message || 'Unable to load tenant information',
-        )
-      }
+    } catch (error: unknown) {
+      setFetchError(error instanceof Error ? error.message : 'Unable to verify this QR code.')
     } finally {
       setIsLoading(false)
-      setIsVerifying(false)
-      controller.abort()
+    }
+  }
+
+  const handleComplaintSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setComplaintError('')
+    setComplaintSuccess('')
+    setIsSubmittingComplaint(true)
+
+    try {
+      const response = await fetch('/api/tenant-scan/complaints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: qrToken,
+          access_code: accessCode,
+          category: complaintCategory,
+          subject: complaintSubject,
+          message: complaintMessage,
+        }),
+      })
+
+      const rawText = await response.text()
+      let json: any = null
+      if (rawText) {
+        try {
+          json = JSON.parse(rawText)
+        } catch {
+          json = null
+        }
+      }
+
+      if (!response.ok) {
+        const firstValidationError = Object.values(json?.errors || {}).flat()[0]
+        throw new Error(
+          json?.message ||
+            (typeof firstValidationError === 'string' ? firstValidationError : null) ||
+            `Unable to submit your message (server error ${response.status}).`,
+        )
+      }
+
+      setComplaintSubject('')
+      setComplaintMessage('')
+      setComplaintSuccess(json?.message || 'Your message has been submitted successfully.')
+    } catch (error: unknown) {
+      setComplaintError(error instanceof Error ? error.message : 'Unable to submit your message.')
+    } finally {
+      setIsSubmittingComplaint(false)
     }
   }
 
   const setPaymentSlide = (contractId: number, slide: number) => {
     setPaymentSlides((current) => ({ ...current, [contractId]: slide }))
   }
-
-  useEffect(() => {
-    if (isAdminView) {
-      void loadTenant()
-    }
-  }, [isAdminView, tenantId])
 
   const totalSlides = tenant ? 1 + tenant.contracts.length : 0
   const nextSlide = () => setCurrentSlide((p) => Math.min(p + 1, totalSlides - 1))
@@ -277,37 +286,28 @@ function TenantScanContent() {
   }
 
   if (!tenant) {
-    if (isAdminView) {
-      return (
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 px-4">
-          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full text-center">
-            <div className="loading-spinner" aria-hidden="true" />
-            <p className="mt-4 text-gray-600 font-medium">Loading tenant info...</p>
-            {fetchError && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{fetchError}</p>}
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 px-4">
-        <form onSubmit={loadTenant} className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full">
-          <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">Enter QR Password</h2>
-          <p className="text-gray-500 text-sm text-center mb-6">Enter the 8-digit password provided by the PFDA administrator.</p>
-          {fetchError && <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{fetchError}</p>}
+        <form onSubmit={handleVerifyQrPassword} className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full">
+          <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">Enter QR password</h2>
+          <p className="text-gray-600 text-sm text-center mb-6">
+            Enter the 8-digit password shown on your tenant profile.
+          </p>
+          {fetchError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{fetchError}</p>}
           <input
             type="password"
             inputMode="numeric"
             pattern="[0-9]{8}"
             maxLength={8}
+            autoComplete="one-time-code"
             value={accessCode}
             onChange={(event) => setAccessCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
             placeholder="8-digit password"
             className="w-full rounded-xl border border-slate-300 px-4 py-3 text-center text-lg tracking-[0.3em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
             required
           />
-          <button type="submit" disabled={isVerifying} className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:opacity-60">
-            {isVerifying ? 'Verifying...' : 'View Tenant Information'}
+          <button type="submit" disabled={isLoading} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:opacity-60">
+            {isLoading ? <><span className="loading-spinner" aria-hidden="true" />Verifying…</> : 'Continue'}
           </button>
         </form>
       </div>
@@ -517,6 +517,89 @@ function TenantScanContent() {
             </button>
           </div>
         )}
+
+        <section className="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-lg" aria-labelledby="tenant-complaint-title">
+          <h2 id="tenant-complaint-title" className="text-lg font-bold text-slate-900">
+            Send a complaint or message
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Your message will be associated with {tenant.business_name || 'this tenant'} using this validated QR code.
+          </p>
+
+          <form onSubmit={handleComplaintSubmit} className="mt-4 space-y-4">
+            <div>
+              <label htmlFor="complaint-category" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Category
+              </label>
+              <select
+                id="complaint-category"
+                value={complaintCategory}
+                onChange={(event) => setComplaintCategory(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="rental_space">Rental space</option>
+                <option value="payments">Payments</option>
+                <option value="contracts">Contracts</option>
+                <option value="facilities">Facilities</option>
+                <option value="staff_service">Staff service</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="complaint-subject" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Subject
+              </label>
+              <input
+                id="complaint-subject"
+                value={complaintSubject}
+                onChange={(event) => setComplaintSubject(event.target.value)}
+                minLength={3}
+                maxLength={150}
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                placeholder="Briefly describe your concern"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="complaint-message" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Message
+              </label>
+              <textarea
+                id="complaint-message"
+                value={complaintMessage}
+                onChange={(event) => setComplaintMessage(event.target.value)}
+                minLength={10}
+                maxLength={5000}
+                rows={5}
+                required
+                className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                placeholder="Provide details so the PFDA team can assist you."
+              />
+            </div>
+
+            {complaintError && (
+              <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                {complaintError}
+              </p>
+            )}
+            {complaintSuccess && (
+              <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+                {complaintSuccess}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmittingComplaint}
+              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmittingComplaint ? 'Sending message…' : 'Submit message'}
+            </button>
+          </form>
+        </section>
 
         <p className="text-center text-xs text-slate-400 mt-6">{orgName}</p>
       </div>

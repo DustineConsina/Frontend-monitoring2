@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Clock3,
   Inbox,
-  LoaderCircle,
   MessageSquareText,
   RefreshCw,
   Search,
@@ -235,7 +234,7 @@ export default function MessagesPage() {
             {error && <p role="alert" className="m-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
 
             {isSmsLoading ? (
-              <div className="flex min-h-72 items-center justify-center text-sm text-slate-500"><LoaderCircle className="mr-2 h-4 w-4 animate-spin text-teal-700" /> Loading reminders…</div>
+              <div className="flex min-h-72 items-center justify-center" role="status" aria-label="Loading reminders"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only">Loading reminders...</span></div>
             ) : filteredSmsMessages.length === 0 ? (
               <div className="flex min-h-72 flex-col items-center justify-center px-5 text-center">
                 <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><Inbox className="h-6 w-6" /></span>

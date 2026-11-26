@@ -376,7 +376,8 @@ export default function TenantsPage() {
         }
       }
 
-      const qrTargetUrl = `${qrOrigin}/tenant-scan/${encodeURIComponent(tenant.id)}`
+      const { token } = await apiClient.getTenantQrToken(String(tenant.id))
+      const qrTargetUrl = `${qrOrigin}/tenant-scan/${encodeURIComponent(token)}`
       const qrCode = await QRCode.toDataURL(qrTargetUrl, {
         width: 420,
         margin: 1,

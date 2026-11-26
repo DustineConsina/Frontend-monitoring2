@@ -660,6 +660,10 @@ class ApiClient {
     return this.request<any>(`/tenants/${id}`)
   }
 
+  async getTenantQrToken(id: string) {
+    return this.request<{ success: boolean; token: string }>(`/tenants/${id}/qr-token`)
+  }
+
   async createTenant(data: any) {
     return this.request<any>('/tenants', {
       method: 'POST',

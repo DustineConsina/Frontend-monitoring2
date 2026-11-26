@@ -66,8 +66,8 @@ function compactText(value: unknown): string {
   return String(value ?? 'N/A').replace(/\s+/g, ' ').trim()
 }
 
-export async function downloadLeasePdf(contract: Record<string, any> | null | undefined) {
-  if (!contract) return
+export async function createLeaseDocument(contract: Record<string, any> | null | undefined): Promise<Blob> {
+  if (!contract) throw new Error('Contract details are unavailable')
 
   const tenant = contract.tenant || contract.renter || {}
   const rentalSpace = contract.rentalSpace || contract.rental_space || {}
@@ -137,6 +137,13 @@ export async function downloadLeasePdf(contract: Record<string, any> | null | un
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   })
 
+  return blob
+}
+
+export function downloadLeaseDocument(blob: Blob, contract: Record<string, any> | null | undefined) {
+  if (!contract) throw new Error('Contract details are unavailable')
+
+  const contractNumber = compactText(getNestedValue(contract, ['contractNumber', 'contract_number'])) || 'Doc_No'
   const blobUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = blobUrl

@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { renderAsync } from 'docx-preview'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Contract, Payment } from '@/types'
 import { formatCalendarDate } from '@/lib/date-format'
 import { statusColorClass } from '@/lib/status-colors'
-import { downloadLeasePdf } from '@/lib/lease-pdf'
+import { createLeaseDocument, downloadLeaseDocument } from '@/lib/lease-pdf'
 
 function unwrapContractResponse(response: unknown): Record<string, unknown> | null {
   if (!response || typeof response !== 'object') return null
@@ -40,6 +41,12 @@ export default function ContractDetailsPage() {
   const [renewalDuration, setRenewalDuration] = useState('12')
   const [renewalRent, setRenewalRent] = useState('')
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isPreparingPreview, setIsPreparingPreview] = useState(false)
+  const [isRenderingPreview, setIsRenderingPreview] = useState(false)
+  const [showLeasePreview, setShowLeasePreview] = useState(false)
+  const [leasePreviewBlob, setLeasePreviewBlob] = useState<Blob | null>(null)
+  const [leasePreviewError, setLeasePreviewError] = useState<string | null>(null)
+  const leasePreviewRef = useRef<HTMLDivElement>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
@@ -136,6 +143,33 @@ export default function ContractDetailsPage() {
     void fetchContract()
   }, [fetchContract])
 
+  useEffect(() => {
+    if (!showLeasePreview || !leasePreviewBlob || !leasePreviewRef.current) return
+
+    let active = true
+    const container = leasePreviewRef.current
+    container.replaceChildren()
+    setLeasePreviewError(null)
+    setIsRenderingPreview(true)
+
+    void renderAsync(leasePreviewBlob, container, container, {
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      breakPages: true,
+    }).then(() => {
+      if (active) setIsRenderingPreview(false)
+    }).catch((err: unknown) => {
+      if (!active) return
+      setLeasePreviewError(getErrorMessage(err, 'The lease document could not be displayed.'))
+      setIsRenderingPreview(false)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [showLeasePreview, leasePreviewBlob])
+
   const handleTerminate = async () => {
     if (!terminationReason.trim()) {
       alert('Please provide a reason for termination')
@@ -199,15 +233,31 @@ export default function ContractDetailsPage() {
     }
   }
 
-  const handleDownloadLease = async () => {
+  const handleOpenLeasePreview = async () => {
     if (!contract) return
 
+    setIsPreparingPreview(true)
+    setLeasePreviewError(null)
+    try {
+      const documentBlob = await createLeaseDocument(contract as Record<string, any>)
+      setLeasePreviewBlob(documentBlob)
+      setShowLeasePreview(true)
+    } catch (err: unknown) {
+      console.error('Lease preview error:', err)
+      alert(`Failed to preview lease: ${getErrorMessage(err, 'Unexpected error')}`)
+    } finally {
+      setIsPreparingPreview(false)
+    }
+  }
+
+  const handleDownloadPreview = () => {
+    if (!leasePreviewBlob || !contract) return
     setIsDownloading(true)
     try {
-      downloadLeasePdf(contract as Record<string, any>)
+      downloadLeaseDocument(leasePreviewBlob, contract as Record<string, any>)
     } catch (err: unknown) {
-      console.error('Download error:', err)
-      alert(`Failed to download lease PDF: ${getErrorMessage(err, 'Unexpected error')}`)
+      console.error('Lease download error:', err)
+      alert(`Failed to download lease: ${getErrorMessage(err, 'Unexpected error')}`)
     } finally {
       setIsDownloading(false)
     }
@@ -300,14 +350,15 @@ export default function ContractDetailsPage() {
               Audit History
             </Link>
             <button
-              onClick={handleDownloadLease}
-              disabled={isDownloading}
+              type="button"
+              onClick={handleOpenLeasePreview}
+              disabled={isDownloading || isPreparingPreview}
               className="action-download inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 font-medium"
             >
-              {isDownloading ? (
+              {isPreparingPreview ? (
                 <>
                   <span className="loading-spinner" aria-hidden="true" />
-                  Downloading...
+                  Preparing...
                 </>
               ) : (
                 <>
@@ -672,6 +723,46 @@ export default function ContractDetailsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showLeasePreview && leasePreviewBlob && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-2 backdrop-blur-sm sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lease-preview-title"
+          onClick={() => setShowLeasePreview(false)}
+        >
+          <section
+            className="flex max-h-[96dvh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-6">
+              <div className="min-w-0">
+                <h2 id="lease-preview-title" className="text-lg font-bold text-slate-900">Lease Preview</h2>
+                <p className="break-all text-sm text-slate-600">Contract {contract.contractNumber}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={handleDownloadPreview} disabled={isDownloading} className="action-download inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-semibold">
+                  {isDownloading ? <><span className="loading-spinner" aria-hidden="true" />Downloading...</> : 'Download Lease'}
+                </button>
+                <button type="button" onClick={() => setShowLeasePreview(false)} className="action-secondary rounded-lg border px-4 py-2 font-semibold">
+                  Close
+                </button>
+              </div>
+            </header>
+            <div className="lease-preview-scroll min-h-0 flex-1 overflow-auto bg-slate-100 p-2 sm:p-5">
+              {isRenderingPreview && (
+                <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-600" role="status">
+                  <span className="loading-spinner" aria-hidden="true" />
+                  Rendering lease document...
+                </div>
+              )}
+              {leasePreviewError && <p className="p-6 text-center text-sm text-red-700" role="alert">{leasePreviewError}</p>}
+              <div ref={leasePreviewRef} className="lease-preview-document mx-auto w-fit min-w-0" />
+            </div>
+          </section>
         </div>
       )}
 
