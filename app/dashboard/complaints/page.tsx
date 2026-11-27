@@ -63,6 +63,7 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   const responseRequestKeys = useRef<Record<number, string>>({})
   const attachmentUrls = useRef<Record<string, string>>({})
   const [attachmentImages, setAttachmentImages] = useState<Record<string, string>>({})
+  const [attachmentStates, setAttachmentStates] = useState<Record<string, 'loading' | 'unavailable'>>({})
   const [drafts, setDrafts] = useState<Record<number, { status: string; reply: string }>>({})
   const [replyImages, setReplyImages] = useState<Record<number, File | null>>({})
   const [statusFilter, setStatusFilter] = useState('all')
@@ -149,13 +150,13 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
       await loadComplaints()
 
       if (responseText) {
-        const notificationSent = result.notificationSent ?? result.notification_sent
+        const notificationSent = result.notificationAccepted ?? result.notification_accepted ?? result.notificationSent ?? result.notification_sent
         const notificationMessage = result.notificationMessage || result.notification_message
         setSaveNotice({
           kind: notificationSent === false ? 'warning' : 'success',
           message: notificationMessage || (notificationSent === false
             ? 'Response saved, but the tenant notification email could not be sent.'
-            : 'Response saved and tenant notified by email.'),
+            : 'Response saved. The mail transport accepted the notification; final delivery is not confirmed.'),
         })
       } else {
         setSaveNotice({ kind: 'success', message: 'Complaint status updated.' })
@@ -179,6 +180,7 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
 
     const loadImage = (key: string, fetchImage: () => Promise<Blob>) => {
       if (attachmentUrls.current[key]) return
+      setAttachmentStates((current) => ({ ...current, [key]: 'loading' }))
       void fetchImage().then((blob) => {
         const url = URL.createObjectURL(blob)
         if (attachmentUrls.current[key]) {
@@ -187,8 +189,13 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
         }
         attachmentUrls.current[key] = url
         setAttachmentImages((current) => ({ ...current, [key]: url }))
-      }).catch((imageError: unknown) => {
-        setError(imageError instanceof Error ? imageError.message : 'Unable to load a complaint image.')
+        setAttachmentStates((current) => {
+          const next = { ...current }
+          delete next[key]
+          return next
+        })
+      }).catch(() => {
+        setAttachmentStates((current) => ({ ...current, [key]: 'unavailable' }))
       })
     }
 
@@ -347,8 +354,19 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                       <Image src={attachmentImages[`complaint:${complaint.id}`]} alt="Image attached to complaint" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
                                     </a>
                                   )}
+                                  {attachmentStates[`complaint:${complaint.id}`] && (
+                                    <p role="status" className="mt-3 text-xs text-slate-500">
+                                      {attachmentStates[`complaint:${complaint.id}`] === 'loading' ? 'Loading complaint image…' : 'Complaint image is unavailable.'}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
+                              {complaint.reply && !complaint.replies?.some((reply) => {
+                                const role = String(reply.sender?.role || '').toLowerCase()
+                                return role !== 'tenant'
+                              }) && (
+                                <div className="flex justify-end"><div className="max-w-[90%] rounded-xl border border-teal-100 bg-teal-50 p-4"><p className="text-xs font-bold text-teal-800">Previous administration reply</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-teal-950">{complaint.reply}</p></div></div>
+                              )}
                               {complaint.replies?.map((reply) => {
                                 const fromTenant = String(reply.sender?.role || '').toLowerCase() === 'tenant'
                                 return (
@@ -361,13 +379,15 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                           <Image src={attachmentImages[`reply:${reply.id}`]} alt="Image attached to response" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
                                         </a>
                                       )}
+                                      {attachmentStates[`reply:${reply.id}`] && (
+                                        <p role="status" className="mt-3 text-xs text-slate-500">
+                                          {attachmentStates[`reply:${reply.id}`] === 'loading' ? 'Loading reply image…' : 'Reply image is unavailable.'}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 )
                               })}
-                              {!complaint.replies?.length && complaint.reply && (
-                                <div className="flex justify-end"><div className="max-w-[90%] rounded-xl border border-teal-100 bg-teal-50 p-4"><p className="text-xs font-bold text-teal-800">Previous administration reply</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-teal-950">{complaint.reply}</p></div></div>
-                              )}
                             </div>
                             {normalizedStatus === 'resolved' ? (
                               <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><CheckCheck className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="font-semibold">Request resolved</p><p className="mt-0.5 text-xs text-emerald-800">Replies are closed for both the tenant and administration.</p></div></div>

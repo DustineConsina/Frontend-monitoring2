@@ -1,22 +1,14 @@
 import { NextRequest } from 'next/server'
-
-const API_URL = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || (
-  process.env.NODE_ENV === 'production'
-    ? 'https://backend-monitoring2.onrender.com/api'
-    : 'http://127.0.0.1:8000/api'
-)
+import { getBackendApiUrl } from '@/lib/backend-api-url'
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await params
-  if (!API_URL) {
-    return new Response('Image service is not configured', { status: 503 })
-  }
   const imagePath = path.map((segment) => encodeURIComponent(segment)).join('/')
   try {
-    const response = await fetch(`${API_URL.replace(/\/$/, '')}/storage/${imagePath}`, {
+    const response = await fetch(`${getBackendApiUrl()}/storage/${imagePath}`, {
       cache: 'no-store',
     })
 

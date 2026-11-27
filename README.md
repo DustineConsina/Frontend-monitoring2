@@ -117,11 +117,13 @@ SEMAPHORE_API_KEY=your-semaphore-api-key
 SEMAPHORE_SENDER_NAME=PFDA
 ```
 
-For production on Vercel, set `NEXT_PUBLIC_API_URL` to the Render API URL,
-including `/api` (currently `https://backend-monitoring2.onrender.com/api`).
-The production API URL is also the default in the frontend, so the Vercel
-project can build without a separate API environment variable. Set
-`NEXT_PUBLIC_API_URL` in Vercel only if the backend URL changes.
+The URL above is for local development only. In the production hosting
+environment, set `NEXT_PUBLIC_API_URL` to the deployed backend URL (including
+`/api`) before the frontend build; do not use a localhost URL there. Server-side
+proxy routes can use `BACKEND_INTERNAL_URL` when the backend has a private
+network address. No production backend URL is embedded in the frontend code.
+The backend must also allow the deployed frontend origin through its
+`FRONTEND_URL` setting. `.env.local` is ignored by Git and is not deployed.
 
 ### 3. Running the Development Server
 
