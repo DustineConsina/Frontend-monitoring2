@@ -1,8 +1,8 @@
 ﻿'use client'
 
 import Image from 'next/image'
-import { ChevronDown, Loader2, Send } from 'lucide-react'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Building2, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FileText, LifeBuoy, Loader2, MessageSquareText, Paperclip, Send, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -104,13 +104,11 @@ const spaceLabel = (space: RentalSpace | null) => {
 }
 
 const statusColor = (s: string) => {
-  switch (s?.toLowerCase()) {
-    case 'active':      return 'bg-green-100 text-green-800'
-    case 'for renewal': return 'bg-amber-100 text-amber-800'
-    case 'expired':     return 'bg-red-100 text-red-800'
-    case 'terminated':  return 'bg-gray-100 text-gray-600'
-    default:            return 'bg-blue-100 text-blue-800'
-  }
+  const status = s?.toLowerCase().replaceAll('_', ' ')
+  if (['active', 'paid', 'resolved', 'renewed'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-800'
+  if (['for renewal', 'in progress', 'partial', 'pending'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800'
+  if (['overdue', 'expired', 'terminated', 'rejected'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-800'
+  return 'border-slate-200 bg-slate-100 text-slate-700'
 }
 
 const paymentStatusColor = (s: string) => {
@@ -143,9 +141,9 @@ const getProfilePictureUrl = (value?: string | null) => {
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
-      <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-      <p className="text-sm font-semibold text-gray-900 break-words">{value || 'N/A'}</p>
+    <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+      <p className="mb-1 text-sm text-slate-500">{label}</p>
+      <p className="break-words text-base font-semibold text-slate-900">{value || 'N/A'}</p>
     </div>
   )
 }
@@ -172,7 +170,9 @@ function TenantScanContent() {
   const [complaintImageUrls, setComplaintImageUrls] = useState<Record<string, string>>({})
   const [complaintImageStates, setComplaintImageStates] = useState<Record<string, { status: 'loading' | 'unavailable'; message?: string }>>({})
   const [expandedComplaintId, setExpandedComplaintId] = useState<number | null>(null)
+  const [complaintDrawerOpen, setComplaintDrawerOpen] = useState(false)
   const complaintImageInput = useRef<HTMLInputElement>(null)
+  const complaintDrawerRef = useRef<HTMLElement>(null)
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({})
   const [replyImages, setReplyImages] = useState<Record<number, File | null>>({})
   const [replyFeedback, setReplyFeedback] = useState<Record<number, { kind: 'success' | 'error'; message: string }>>({})
@@ -180,6 +180,28 @@ function TenantScanContent() {
   const [complaintSuccess, setComplaintSuccess] = useState('')
   const [complaintError, setComplaintError] = useState('')
   const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false)
+
+  const closeComplaintDrawer = useCallback(() => {
+    setComplaintDrawerOpen(false)
+    setExpandedComplaintId(null)
+  }, [])
+
+  useEffect(() => {
+    if (!complaintDrawerOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeComplaintDrawer()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.body.style.overflow = 'hidden'
+    complaintDrawerRef.current?.focus()
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [closeComplaintDrawer, complaintDrawerOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -507,58 +529,111 @@ function TenantScanContent() {
   const orgName = process.env.NEXT_PUBLIC_ORG_NAME || 'Philippine Fisheries Development Authority'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 shadow-sm px-4 py-3">
-        <div className="mx-auto flex max-w-md items-center justify-between gap-3">
-          <div className="flex-1 text-center">
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-widest">{orgName}</p>
-            <h1 className="text-sm text-gray-500 mt-0.5">Tenant QR Information</h1>
+    <div className="min-h-screen bg-[#f3f7f6] pb-24 text-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-900 text-white shadow-sm">
+              <ShieldCheck className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-teal-950">{orgName}</p>
+              <h1 className="mt-0.5 text-sm text-slate-500">Tenant portal</h1>
+            </div>
+          </div>
+          <nav aria-label="Tenant navigation" className="hidden items-center gap-1 md:flex">
+            <button type="button" onClick={() => setCurrentSlide(0)} className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+              <UserRound className="h-4 w-4" aria-hidden="true" /> Profile
+            </button>
+            <button type="button" onClick={() => setCurrentSlide(tenant.contracts.length ? 1 : 0)} className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+              <FileText className="h-4 w-4" aria-hidden="true" /> Contracts
+            </button>
+            <button
+              type="button"
+              onClick={() => { setExpandedComplaintId(null); setComplaintDrawerOpen(true) }}
+              className="relative inline-flex items-center gap-2 rounded-xl bg-teal-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-950 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-200"
+              aria-label={`Open complaints${tenant.complaints.length ? `, ${tenant.complaints.length} total` : ''}`}
+            >
+              <MessageSquareText className="h-4 w-4" aria-hidden="true" /> Complaints
+              {tenant.complaints.length > 0 && <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs">{tenant.complaints.length}</span>}
+            </button>
+          </nav>
+          <div className="flex items-center gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => { setExpandedComplaintId(null); setComplaintDrawerOpen(true) }}
+              className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-teal-900 text-white shadow-sm transition hover:bg-teal-950 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-200"
+              aria-label={`Open complaints${tenant.complaints.length ? `, ${tenant.complaints.length} total` : ''}`}
+            >
+              <MessageSquareText className="h-5 w-5" aria-hidden="true" />
+              {tenant.complaints.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[11px] font-bold text-slate-950">{tenant.complaints.length}</span>}
+            </button>
           </div>
           {isAdminView && (
             <button
               type="button"
               onClick={() => window.history.back()}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               Back
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-md mx-auto px-3 py-5">
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-9">
+        <section className="mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-teal-950 via-teal-900 to-cyan-900 p-5 text-white shadow-lg sm:p-7">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-200">Tenant workspace</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">{tenant.business_name || tenant.contact_person}</h2>
+              <p className="mt-2 text-base text-teal-100">Your profile, contracts, payments, and support in one place.</p>
+            </div>
+            <div className="flex gap-3">
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                <p className="text-sm text-teal-100">Tenant code</p>
+                <p className="mt-1 text-base font-semibold">{tenant.tenant_code || 'Not available'}</p>
+              </div>
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                <p className="text-sm text-teal-100">Contracts</p>
+                <p className="mt-1 text-base font-semibold">{tenant.contracts.length}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tenant-carousel" aria-label="Tenant profile and contracts" className="mx-auto max-w-5xl">
         {totalSlides > 1 && (
-          <p className="text-center text-xs text-slate-500 mb-3">
-            Swipe left / right to browse cards
+          <p className="mb-3 text-center text-sm text-slate-500">
+            Use the arrows or swipe to browse your profile and contracts.
           </p>
         )}
 
         {/* Carousel */}
-        <div className="overflow-hidden rounded-2xl" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+        <div className="overflow-hidden rounded-3xl" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
           <div
             className="flex transition-transform duration-300 ease-out"
             style={{ transform: `translateX(-${currentSlide * 100}%)` }}
           >
             {/* Slide 0 — Tenant info */}
             <div className="w-full shrink-0 px-0.5">
-              <article className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 min-h-[70vh]">
+              <article className="min-h-[520px] rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
                 <div className="flex items-start gap-4 mb-5">
-                  <div className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center text-3xl">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 text-3xl">
                     {tenant.profile_picture_url
                       ? <img src={tenant.profile_picture_url} alt={tenant.business_name} className="w-full h-full object-cover" />
-                      : '🏢'}
+                      : <Building2 className="h-8 w-8 text-slate-400" aria-hidden="true" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs uppercase tracking-widest text-blue-700 font-semibold mb-0.5">Tenant</p>
-                    <h2 className="text-xl font-bold text-gray-900 leading-tight">{tenant.business_name || tenant.contact_person}</h2>
-                    <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${statusColor(tenant.status)}`}>
+                    <p className="mb-1 text-sm font-semibold uppercase tracking-widest text-teal-800">Tenant profile</p>
+                    <h2 className="text-2xl font-bold leading-tight text-slate-950">{tenant.business_name || tenant.contact_person}</h2>
+                    <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-sm font-semibold capitalize ${statusColor(tenant.status)}`}>
                       {tenant.status}
                     </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 text-sm">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <InfoRow label="Tenant Code" value={tenant.tenant_code} />
                   <InfoRow label="Contact Person" value={tenant.contact_person} />
                   <InfoRow label="Contact Number" value={tenant.contact_number} />
@@ -578,22 +653,22 @@ function TenantScanContent() {
             {/* Slides 1+ — one per contract */}
             {tenant.contracts.map((contract, index) => (
               <div key={contract.id} className="w-full shrink-0 px-0.5">
-                <article className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 min-h-[70vh]">
+                <article className="min-h-[520px] rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
                   <div className="flex items-start justify-between mb-5 gap-2">
                     <div>
-                      <p className="text-xs uppercase tracking-widest text-indigo-700 font-semibold mb-0.5">
+                      <p className="mb-1 text-sm font-semibold uppercase tracking-widest text-indigo-800">
                         Contract {index + 1} of {tenant.contracts.length}
                       </p>
-                      <h2 className="text-xl font-bold text-gray-900 leading-tight">
+                      <h2 className="text-2xl font-bold leading-tight text-slate-950">
                         {contract.contract_number || `Contract #${contract.id}`}
                       </h2>
                     </div>
-                    <span className={`shrink-0 mt-1 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${statusColor(contract.status)}`}>
+                    <span className={`mt-1 shrink-0 rounded-full border px-3 py-1 text-sm font-semibold capitalize ${statusColor(contract.status)}`}>
                       {(contract.status || '').replace('_', ' ')}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <InfoRow label="Unit / Stall" value={spaceLabel(contract.rental_space)} />
                     {contract.rental_space?.type && <InfoRow label="Space Type" value={contract.rental_space.type} />}
                     <InfoRow label="Start Date" value={formatDate(contract.start_date)} />
@@ -605,7 +680,9 @@ function TenantScanContent() {
                   </div>
 
                   <div className="mt-5 border-t border-slate-100 pt-4">
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-700">Payment History</h3>
+                    <h3 className="mb-3 flex items-center gap-2 text-base font-bold uppercase tracking-wider text-slate-700">
+                      <Wallet className="h-4 w-4 text-teal-800" aria-hidden="true" /> Payment history
+                    </h3>
                     {!contract.payments?.length ? (
                       <p className="text-sm text-slate-500">No payments recorded.</p>
                     ) : (
@@ -620,12 +697,12 @@ function TenantScanContent() {
                                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
-                                      <p className="text-xs font-semibold text-slate-700">
+                                      <p className="text-sm font-semibold text-slate-700">
                                         {payment.payment_number || `Payment #${payment.id}`}
                                       </p>
-                                      <p className="mt-1 text-xs text-slate-500">Due {formatDate(payment.due_date)}</p>
+                                      <p className="mt-1 text-sm text-slate-500">Due {formatDate(payment.due_date)}</p>
                                     </div>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${paymentStatusColor(payment.status || 'pending')}`}>
+                                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase ${paymentStatusColor(payment.status || 'pending')}`}>
                                       {payment.status || 'pending'}
                                     </span>
                                   </div>
@@ -692,32 +769,88 @@ function TenantScanContent() {
               type="button"
               onClick={prevSlide}
               disabled={currentSlide === 0}
-              className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-medium disabled:opacity-40 active:scale-95 transition"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 py-3 text-base font-semibold text-slate-700 transition hover:bg-white disabled:opacity-40"
             >
-              ← Previous
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
             </button>
-            <span className="text-xs text-slate-500 tabular-nums shrink-0">{currentSlide + 1} / {totalSlides}</span>
+            <span className="shrink-0 text-sm tabular-nums text-slate-500">{currentSlide + 1} / {totalSlides}</span>
             <button
               type="button"
               onClick={nextSlide}
               disabled={currentSlide === totalSlides - 1}
-              className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium disabled:opacity-40 active:scale-95 transition"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-900 py-3 text-base font-semibold text-white transition hover:bg-teal-950 disabled:opacity-40"
             >
-              Next →
+              Next <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         )}
+        </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-lg" aria-labelledby="tenant-requests-title">
+        <nav aria-label="Tenant quick navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
+          <button type="button" onClick={() => setCurrentSlide(0)} className="flex flex-col items-center gap-1 rounded-xl py-1.5 text-xs font-semibold text-slate-600">
+            <UserRound className="h-5 w-5" aria-hidden="true" /> Profile
+          </button>
+          <button type="button" onClick={() => setCurrentSlide(tenant.contracts.length ? 1 : 0)} className="flex flex-col items-center gap-1 rounded-xl py-1.5 text-xs font-semibold text-slate-600">
+            <FileText className="h-5 w-5" aria-hidden="true" /> Contracts
+          </button>
+          <button type="button" onClick={() => { setExpandedComplaintId(null); setComplaintDrawerOpen(true) }} className="relative flex flex-col items-center gap-1 rounded-xl py-1.5 text-xs font-semibold text-teal-900">
+            <MessageSquareText className="h-5 w-5" aria-hidden="true" /> Complaints
+            {tenant.complaints.length > 0 && <span className="absolute left-1/2 top-0 ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-slate-950">{tenant.complaints.length}</span>}
+          </button>
+        </nav>
+
+        {complaintDrawerOpen && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <button type="button" onClick={closeComplaintDrawer} className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" aria-label="Close complaints panel" />
+            <aside
+              ref={complaintDrawerRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="complaint-drawer-title"
+              tabIndex={-1}
+              className="relative z-10 flex h-full w-full max-w-2xl flex-col bg-[#f7faf9] shadow-2xl outline-none sm:border-l sm:border-slate-200"
+            >
+              <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  {expandedComplaintId !== null && (
+                    <button type="button" onClick={() => setExpandedComplaintId(null)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-100" aria-label="Back to complaint list">
+                      <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  )}
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-900 text-white">
+                    <LifeBuoy className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 id="complaint-drawer-title" className="truncate text-lg font-bold text-slate-950 sm:text-xl">
+                      {expandedComplaintId === null ? 'Complaints & support' : tenant.complaints.find((item) => item.id === expandedComplaintId)?.subject || 'Complaint details'}
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                      {expandedComplaintId === null ? 'Your private support conversations' : 'Complaint details and replies'}
+                    </p>
+                  </div>
+                </div>
+                <button type="button" onClick={closeComplaintDrawer} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100" aria-label="Close complaints">
+                  <X className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </header>
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+                <div className="mx-auto max-w-xl space-y-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="tenant-requests-title">
           <div className="mb-4">
-            <h2 id="tenant-requests-title" className="text-lg font-bold text-slate-900">Your complaints and responses</h2>
-            <p className="mt-1 text-sm text-slate-600">Private to this tenant QR code and its access password.</p>
+            <h2 id="tenant-requests-title" className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <MessageSquareText className="h-5 w-5 text-teal-800" aria-hidden="true" /> Your conversations
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">Updates and replies from the PFDA team.</p>
           </div>
           {!tenant.complaints.length ? (
-            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No complaints have been submitted yet.</p>
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center">
+              <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" aria-hidden="true" />
+              <p className="mt-3 text-base font-semibold text-slate-800">You are all caught up</p>
+              <p className="mt-1 text-sm text-slate-500">No complaints have been submitted yet.</p>
+            </div>
           ) : (
             <div className="space-y-3">
-              {tenant.complaints.map((complaint) => {
+              {tenant.complaints.filter((complaint) => expandedComplaintId === null || complaint.id === expandedComplaintId).map((complaint) => {
                 const hasAdminReply = complaint.replies?.some((reply) => {
                   const role = String(reply.sender?.role || '').toLowerCase()
                   return role !== 'tenant'
@@ -734,8 +867,12 @@ function TenantScanContent() {
                   >
                     <span className="flex min-w-0 flex-1 items-start gap-3">
                       <span className="min-w-0 flex-1">
-                        <span className="block break-words text-sm font-bold text-slate-900">{complaint.subject}</span>
-                        <time className="mt-1 block text-xs text-slate-500">
+                        <span className="flex items-center gap-2 break-words text-base font-bold text-slate-900">
+                          {complaint.subject}
+                          {(complaint.has_image || complaint.hasImage) && <Paperclip className="h-4 w-4 shrink-0 text-slate-500" aria-label="Attachment available" />}
+                        </span>
+                        <time className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
+                          <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
                           Submitted {formatDateTime(complaint.createdAt || complaint.created_at)}
                         </time>
                       </span>
@@ -848,7 +985,7 @@ function TenantScanContent() {
           )}
         </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-lg" aria-labelledby="tenant-complaint-title">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="tenant-complaint-title">
           <h2 id="tenant-complaint-title" className="text-lg font-bold text-slate-900">
             Send a complaint or message
           </h2>
@@ -865,7 +1002,7 @@ function TenantScanContent() {
                 id="complaint-category"
                 value={complaintCategory}
                 onChange={(event) => setComplaintCategory(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-base text-slate-900 outline-none focus:border-teal-700 focus:ring-4 focus:ring-teal-100"
                 required
               >
                 <option value="rental_space">Rental space</option>
@@ -888,7 +1025,7 @@ function TenantScanContent() {
                 minLength={3}
                 maxLength={150}
                 required
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-base text-slate-900 outline-none focus:border-teal-700 focus:ring-4 focus:ring-teal-100"
                 placeholder="Briefly describe your concern"
               />
             </div>
@@ -905,7 +1042,7 @@ function TenantScanContent() {
                 maxLength={5000}
                 rows={5}
                 required
-                className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="w-full resize-y rounded-xl border border-slate-300 px-3 py-3 text-base text-slate-900 outline-none focus:border-teal-700 focus:ring-4 focus:ring-teal-100"
                 placeholder="Provide details so the PFDA team can assist you."
               />
             </div>
@@ -951,15 +1088,20 @@ function TenantScanContent() {
             <button
               type="submit"
               disabled={isSubmittingComplaint}
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-xl bg-teal-900 px-4 py-3 text-base font-semibold text-white transition hover:bg-teal-950 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmittingComplaint ? 'Sending message…' : 'Submit message'}
             </button>
           </form>
         </section>
+                </div>
+              </div>
+            </aside>
+          </div>
+        )}
 
-        <p className="text-center text-xs text-slate-400 mt-6">{orgName}</p>
-      </div>
+        <p className="mt-8 text-center text-sm text-slate-400">{orgName}</p>
+      </main>
     </div>
   )
 }
