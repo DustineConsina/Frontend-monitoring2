@@ -7,7 +7,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/contexts/AuthContext'
 import apiClient from '@/lib/api-client'
 import { Contract, DashboardStats, Payment } from '@/types'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ArrowUpRight, Banknote, Building2, CalendarClock, FileText, RefreshCw, Users } from 'lucide-react'
 
 function extractDashboardList<T>(response: unknown): T[] {
@@ -32,6 +32,35 @@ function formatDashboardDate(value?: string | number | Date | null): string {
 
   const date = value instanceof Date ? value : new Date(value)
   return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString()
+}
+
+function formatDashboardDateTime(value?: string | number | Date | null): string {
+  if (value === null || value === undefined || value === '') return 'Date unavailable'
+
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString()
+}
+
+type DashboardComplaint = {
+  id: number
+  subject: string
+  message: string
+  status: string
+  adminRead?: boolean
+  admin_read?: boolean
+  createdAt?: string
+  created_at?: string
+  tenant?: {
+    contactPerson?: string
+    contact_person?: string
+    businessName?: string
+    business_name?: string
+    contracts?: Array<{
+      status?: string
+      rentalSpace?: { name?: string; unitNumber?: string; unit_number?: string; spaceCode?: string; space_code?: string }
+      rental_space?: { name?: string; unitNumber?: string; unit_number?: string; spaceCode?: string; space_code?: string }
+    }>
+  }
 }
 
 function getContractSpaceLabel(contract: Contract | null | undefined): string {
@@ -68,6 +97,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [contracts, setContracts] = useState<Contract[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
+  const [recentComplaints, setRecentComplaints] = useState<DashboardComplaint[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -97,11 +127,12 @@ export default function DashboardPage() {
       if (!isMounted || !localStorage.getItem('auth_token')) return
 
       setIsRefreshing(true)
-      const [statsResult, contractsResult, paymentsResult, tenantsResult] = await Promise.allSettled([
+      const [statsResult, contractsResult, paymentsResult, tenantsResult, complaintsResult] = await Promise.allSettled([
         apiClient.getDashboardStats(),
         apiClient.getContracts({ per_page: 1000 }),
         apiClient.getPayments(undefined, { per_page: 1000 }),
         apiClient.getAllTenants(),
+        apiClient.getRecentComplaints(),
       ])
       if (!isMounted) return
 
@@ -109,6 +140,9 @@ export default function DashboardPage() {
       setStats(statsResult.value)
       if (contractsResult.status === 'fulfilled') setContracts(extractDashboardList<Contract>(contractsResult.value))
       if (paymentsResult.status === 'fulfilled') setPayments(extractDashboardList<Payment>(paymentsResult.value))
+      if (complaintsResult.status === 'fulfilled') {
+        setRecentComplaints(extractDashboardList<DashboardComplaint>(complaintsResult.value))
+      }
       if (tenantsResult.status === 'fulfilled') {
         const counts = { active: 0, inactive: 0, blacklisted: 0 }
         for (const tenant of tenantsResult.value || []) {
@@ -171,19 +205,32 @@ export default function DashboardPage() {
   const monthlyNeeded = payments
     .filter((p) => String(p.dueDate || p.due_date || '').slice(0, 7) === currentMonth)
     .reduce((sum, p) => sum + (Number.parseFloat(String(p.totalAmount || p.total_amount || p.amountDue || p.amount_due || 0)) || 0), 0)
-  const monthlyPaidRatio = monthlyNeeded > 0 ? Math.min((monthlyPaid / monthlyNeeded) * 100, 100) : 0
+
+  const occupiedSpaces = Math.max(Number(stats?.occupiedSpaces) || 0, 0)
+  const availableSpaces = Math.max(Number(stats?.availableSpaces) || 0, 0)
+  const totalRentalSpaces = Math.max(Number(stats?.totalRentalSpaces ?? occupiedSpaces + availableSpaces) || 0, 0)
+  const unavailableSpaces = Math.max(totalRentalSpaces - occupiedSpaces - availableSpaces, 0)
+  const occupancyRate = totalRentalSpaces > 0 ? Math.round((occupiedSpaces / totalRentalSpaces) * 100) : 0
 
   const revenueByMonth = new Map<string, { label: string; sortKey: string; current: number }>()
+  for (let month = 0; month < 12; month += 1) {
+    const date = new Date(now.getFullYear(), month, 1)
+    const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    revenueByMonth.set(sortKey, {
+      label: date.toLocaleDateString('en-US', { month: 'short' }),
+      sortKey,
+      current: 0,
+    })
+  }
+
   for (const payment of stats?.recentPayments || []) {
     const rawDate = payment.paymentDate || payment.payment_date || payment.dueDate || payment.due_date || payment.createdAt || payment.created_at
     const date = rawDate ? new Date(rawDate) : null
-    if (!date || Number.isNaN(date.getTime())) continue
+    if (!date || Number.isNaN(date.getTime()) || date.getFullYear() !== now.getFullYear()) continue
     const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    const label = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
     const amount = parseDashboardAmount(payment.totalAmount ?? payment.total_amount ?? payment.amount ?? payment.amountPaid ?? payment.amount_paid) ?? 0
     const existing = revenueByMonth.get(sortKey)
     if (existing) existing.current += amount
-    else revenueByMonth.set(sortKey, { label, sortKey, current: amount })
   }
   const monthlyRevenueChartData = Array.from(revenueByMonth.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
@@ -229,7 +276,7 @@ export default function DashboardPage() {
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-800"><Banknote className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">This month</p>
+                <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">This month revenue</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paid</p>
@@ -243,7 +290,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-          <SummaryMetric icon={<Users className="h-4 w-4" />} label="Tenants" value={stats?.totalTenants || 0} />
+          <SummaryMetric icon={<Users className="h-4 w-4" />} label="Active Tenants" value={stats?.totalTenants || 0} />
         </section>
 
         {error && (
@@ -323,17 +370,44 @@ export default function DashboardPage() {
             </div>
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Number of Transactions" subtitle="Recent payment activity" action="View" href="/dashboard/payments">
-            <ResponsiveContainer width="100%" height={190}>
-              <LineChart data={(stats?.recentPayments || []).slice(0, 8).map((payment, index) => ({ label: index + 1, value: payment.totalAmount || payment.amount || 0 }))}>
-                <CartesianGrid stroke="#eef0f5" vertical={false} strokeDasharray="3 4" />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#a3a9b8', fontSize: 10 }} />
-                <YAxis hide />
-                <Tooltip formatter={(value) => [`₱${Number(value).toLocaleString()}`, 'Amount']} />
-                <Line type="monotone" dataKey="value" stroke="#087f8c" strokeWidth={2} dot={{ r: 3, fill: '#087f8c' }} />
-              </LineChart>
-            </ResponsiveContainer>
-            <ChartLegend items={[['#087f8c', 'Current'], ['#cbd7da', 'Previous period']]} />
+          <AnalyticsPanel title="Recent Complaints" subtitle="Unread requests appear first" action="View All Complaints" href="/dashboard/complaints">
+            {recentComplaints.length ? (
+              <div className="max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                {recentComplaints.slice(0, 5).map((complaint) => {
+                  const tenant = complaint.tenant
+                  const tenantName = tenant?.contactPerson || tenant?.contact_person || tenant?.businessName || tenant?.business_name || 'Tenant'
+                  const contract = tenant?.contracts?.find((item) => String(item.status || '').toLowerCase() === 'active') || tenant?.contracts?.[0]
+                  const space = contract?.rentalSpace || contract?.rental_space
+                  const stall = space?.unitNumber || space?.unit_number || space?.spaceCode || space?.space_code || space?.name || 'Stall not assigned'
+                  const unread = !(complaint.adminRead ?? complaint.admin_read)
+                  const status = String(complaint.status || 'pending').replaceAll('_', ' ')
+
+                  return (
+                    <Link
+                      key={complaint.id}
+                      href="/dashboard/complaints"
+                      className="block rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 transition hover:border-teal-200 hover:bg-teal-50/50"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-bold text-slate-900">{complaint.subject}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-slate-600">{tenantName} · {stall}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold capitalize ${unread ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                          {unread ? 'New' : status}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{complaint.message}</p>
+                      <time className="mt-1 block text-[10px] text-slate-400">{formatDashboardDateTime(complaint.createdAt || complaint.created_at)}</time>
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="flex min-h-[190px] items-center justify-center rounded-xl bg-slate-50 px-4 text-center text-sm text-slate-500">
+                No new complaints at the moment.
+              </div>
+            )}
           </AnalyticsPanel>
         </div>
 
@@ -350,17 +424,51 @@ export default function DashboardPage() {
             emptyText="No recent payments"
           />
 
-          <PanelCard
-            title="Expiring Soon"
-            viewAllHref="/dashboard/contracts"
-            items={stats?.expiringContracts?.slice(0, 5).map((contract) => ({
-              id: contract.id ?? contract.contractNumber ?? 'contract',
-              primary: contract.contractNumber || 'Contract',
-              secondary: getContractSpaceLabel(contract),
-              value: `Expires: ${formatDashboardDate(contract.endDate || contract.end_date)}`,
-            })) || []}
-            emptyText="No expiring contracts"
-          />
+          <section aria-label="Stall occupancy and availability" className="self-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Stall Occupancy</h3>
+                <p className="text-xs text-slate-500">{totalRentalSpaces} total spaces</p>
+              </div>
+              <Link href="/dashboard/spaces" className="rounded-lg px-3 py-2 text-[11px] font-semibold text-teal-800 transition hover:bg-teal-50">
+                View All Spaces
+              </Link>
+            </div>
+
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-2xl font-bold tracking-tight text-slate-900">{occupancyRate}% <span className="text-xs font-medium text-slate-500">occupied</span></p>
+              </div>
+              <Building2 className="h-5 w-5 text-teal-700" aria-hidden="true" />
+            </div>
+
+            <div
+              role="progressbar"
+              aria-label="Space occupancy"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={occupancyRate}
+              className="mb-3 h-2 overflow-hidden rounded-full bg-slate-100"
+            >
+              <div className="h-full rounded-full bg-teal-700 transition-[width]" style={{ width: `${occupancyRate}%` }} />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Occupied', value: occupiedSpaces, color: 'bg-teal-700' },
+                { label: 'Available', value: availableSpaces, color: 'bg-emerald-500' },
+                { label: 'Unavailable', value: unavailableSpaces, color: 'bg-slate-400' },
+              ].map((item) => (
+                <div key={item.label} className="rounded-lg bg-slate-50 px-2.5 py-2">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.color}`} />
+                    {item.label}
+                  </p>
+                  <p className="mt-0.5 text-base font-bold text-slate-900">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

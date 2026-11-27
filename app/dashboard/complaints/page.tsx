@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import apiClient from '@/lib/api-client'
-import { AlertCircle, CheckCheck, ChevronDown, ChevronUp, Clock3, Inbox, MessageSquareText, Search, Send, UserRound, X } from 'lucide-react'
+import { AlertCircle, CheckCheck, ChevronDown, ChevronUp, Clock3, Inbox, Loader2, MessageSquareText, Search, Send, UserRound, X } from 'lucide-react'
 
 type Complaint = {
   id: number
@@ -11,6 +12,8 @@ type Complaint = {
   subject: string
   message: string
   status: string
+  has_image?: boolean
+  hasImage?: boolean
   admin_read?: boolean
   adminRead?: boolean
   reply?: string | null
@@ -19,6 +22,8 @@ type Complaint = {
   replies?: Array<{
     id: number
     message: string
+    has_image?: boolean
+    hasImage?: boolean
     createdAt?: string
     created_at?: string
     sender?: { name?: string; role?: string }
@@ -53,8 +58,13 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [saveNotice, setSaveNotice] = useState<{ kind: 'success' | 'warning'; message: string } | null>(null)
   const [savingId, setSavingId] = useState<number | null>(null)
+  const responseRequestKeys = useRef<Record<number, string>>({})
+  const attachmentUrls = useRef<Record<string, string>>({})
+  const [attachmentImages, setAttachmentImages] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Record<number, { status: string; reply: string }>>({})
+  const [replyImages, setReplyImages] = useState<Record<number, File | null>>({})
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [expandedComplaintId, setExpandedComplaintId] = useState<number | null>(null)
@@ -78,6 +88,9 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   }, [])
 
   useEffect(() => { void loadComplaints() }, [loadComplaints])
+  useEffect(() => () => {
+    Object.values(attachmentUrls.current).forEach((url) => URL.revokeObjectURL(url))
+  }, [])
 
   const counts = useMemo(() => ({
     all: complaints.length,
@@ -98,11 +111,55 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   const save = async (complaint: Complaint) => {
     const draft = drafts[complaint.id]
     if (!draft) return
+    const responseText = draft.reply.trim()
+    const replyImage = replyImages[complaint.id]
+    if (replyImage && !responseText) {
+      setError('Write a response before attaching an image.')
+      return
+    }
+
     setSavingId(complaint.id)
     setError('')
+    setSaveNotice(null)
     try {
-      await apiClient.updateComplaint(String(complaint.id), draft)
+      const requestKey = responseText
+        ? responseRequestKeys.current[complaint.id] || crypto.randomUUID()
+        : undefined
+      if (requestKey) responseRequestKeys.current[complaint.id] = requestKey
+
+      let updateData: FormData | { status: string; reply: string; requestKey?: string }
+      if (responseText && replyImage) {
+        const formData = new FormData()
+        formData.append('status', draft.status)
+        formData.append('reply', responseText)
+        formData.append('request_key', requestKey!)
+        formData.append('reply_image', replyImage)
+        updateData = formData
+      } else {
+        updateData = {
+          ...draft,
+          reply: responseText,
+          ...(requestKey ? { requestKey } : {}),
+        }
+      }
+
+      const result = await apiClient.updateComplaint(String(complaint.id), updateData)
+      if (requestKey) delete responseRequestKeys.current[complaint.id]
+      if (replyImage) setReplyImages((current) => ({ ...current, [complaint.id]: null }))
       await loadComplaints()
+
+      if (responseText) {
+        const notificationSent = result.notificationSent ?? result.notification_sent
+        const notificationMessage = result.notificationMessage || result.notification_message
+        setSaveNotice({
+          kind: notificationSent === false ? 'warning' : 'success',
+          message: notificationMessage || (notificationSent === false
+            ? 'Response saved, but the tenant notification email could not be sent.'
+            : 'Response saved and tenant notified by email.'),
+        })
+      } else {
+        setSaveNotice({ kind: 'success', message: 'Complaint status updated.' })
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to update this complaint.')
     } finally {
@@ -116,7 +173,34 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   }
 
   const openComplaint = async (complaint: Complaint) => {
+    const isClosing = expandedComplaintId === complaint.id
     setExpandedComplaintId((current) => current === complaint.id ? null : complaint.id)
+    if (isClosing) return
+
+    const loadImage = (key: string, fetchImage: () => Promise<Blob>) => {
+      if (attachmentUrls.current[key]) return
+      void fetchImage().then((blob) => {
+        const url = URL.createObjectURL(blob)
+        if (attachmentUrls.current[key]) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        attachmentUrls.current[key] = url
+        setAttachmentImages((current) => ({ ...current, [key]: url }))
+      }).catch((imageError: unknown) => {
+        setError(imageError instanceof Error ? imageError.message : 'Unable to load a complaint image.')
+      })
+    }
+
+    if (complaint.has_image || complaint.hasImage) {
+      loadImage(`complaint:${complaint.id}`, () => apiClient.getComplaintImage(String(complaint.id)))
+    }
+    complaint.replies?.forEach((reply) => {
+      if (reply.has_image || reply.hasImage) {
+        loadImage(`reply:${reply.id}`, () => apiClient.getComplaintReplyImage(String(complaint.id), String(reply.id)))
+      }
+    })
+
     if (complaint.admin_read || complaint.adminRead) return
 
     try {
@@ -155,6 +239,14 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
           </div>
         </header>
 
+        {saveNotice && (
+          <p
+            role={saveNotice.kind === 'warning' ? 'alert' : 'status'}
+            className={`rounded-xl border px-4 py-3 text-sm ${saveNotice.kind === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}
+          >
+            {saveNotice.message}
+          </p>
+        )}
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -250,6 +342,11 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                     <time className="text-[10px] text-slate-400">{dateLabel(complaint.createdAt || complaint.created_at)}</time>
                                   </div>
                                   <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{complaint.message}</p>
+                                  {attachmentImages[`complaint:${complaint.id}`] && (
+                                    <a href={attachmentImages[`complaint:${complaint.id}`]} target="_blank" rel="noreferrer" className="mt-3 block w-fit">
+                                      <Image src={attachmentImages[`complaint:${complaint.id}`]} alt="Image attached to complaint" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
+                                    </a>
+                                  )}
                                 </div>
                               </div>
                               {complaint.replies?.map((reply) => {
@@ -259,6 +356,11 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                     <div className={`max-w-[90%] rounded-xl p-4 ${fromTenant ? 'border border-slate-200 bg-white' : 'border border-teal-100 bg-teal-50'}`}>
                                       <div className="flex flex-wrap items-center justify-between gap-3"><p className={`text-xs font-bold ${fromTenant ? 'text-slate-600' : 'text-teal-800'}`}>{fromTenant ? tenantName : 'Administration'}</p><time className="text-[10px] text-slate-400">{dateLabel(reply.createdAt || reply.created_at)}</time></div>
                                       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{reply.message}</p>
+                                      {attachmentImages[`reply:${reply.id}`] && (
+                                        <a href={attachmentImages[`reply:${reply.id}`]} target="_blank" rel="noreferrer" className="mt-3 block w-fit">
+                                          <Image src={attachmentImages[`reply:${reply.id}`]} alt="Image attached to response" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
+                                        </a>
+                                      )}
                                     </div>
                                   </div>
                                 )
@@ -280,9 +382,44 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                     <textarea value={draft.reply} onChange={(event) => setDrafts((current) => ({ ...current, [complaint.id]: { ...draft, reply: event.target.value } }))} maxLength={5000} rows={3} placeholder="Write a clear response or update…" className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal normal-case text-slate-800 outline-none placeholder:text-slate-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-50" />
                                   </label>
                                 </div>
+                                <label className="mt-4 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                  Image attachment <span className="font-normal normal-case tracking-normal">(optional, JPG/PNG/WebP up to 5 MB)</span>
+                                  <input
+                                    key={replyImages[complaint.id]?.name || `empty-${complaint.id}`}
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0] || null
+                                      if (file && file.size > 5 * 1024 * 1024) {
+                                        setError('The response image must be 5 MB or smaller.')
+                                        setReplyImages((current) => ({ ...current, [complaint.id]: null }))
+                                        event.target.value = ''
+                                        return
+                                      }
+                                      setError('')
+                                      setReplyImages((current) => ({ ...current, [complaint.id]: file }))
+                                    }}
+                                    className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700"
+                                  />
+                                  {replyImages[complaint.id] && (
+                                    <span className="mt-1.5 block font-normal normal-case tracking-normal text-slate-500">Selected: {replyImages[complaint.id]?.name}</span>
+                                  )}
+                                </label>
                                 <div className="mt-4 flex flex-col-reverse justify-between gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center">
-                                  <p className="text-[10px] text-slate-400">A reply is optional when only updating status.</p>
-                                  <button type="button" onClick={() => void save(complaint)} disabled={savingId === complaint.id} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-800 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" />{savingId === complaint.id ? 'Saving…' : draft.reply.trim() ? 'Send response' : 'Save status'}</button>
+                                  <p className="text-[10px] text-slate-400">Leave the response blank to update status only. A written response must contain text.</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => void save(complaint)}
+                                    disabled={savingId === complaint.id}
+                                    className="self-start inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3.5 py-2 text-xs font-bold text-teal-800 shadow-sm transition hover:border-teal-300 hover:bg-teal-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
+                                  >
+                                    {savingId === complaint.id
+                                      ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                      : draft.reply.trim()
+                                        ? <Send className="h-4 w-4" aria-hidden="true" />
+                                        : <CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                                    {savingId === complaint.id ? 'Saving…' : draft.reply.trim() ? 'Send response' : 'Save status'}
+                                  </button>
                                 </div>
                               </div>
                             )}

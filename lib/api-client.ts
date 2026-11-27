@@ -701,6 +701,10 @@ class ApiClient {
     return this.request<any>('/complaints')
   }
 
+  async getRecentComplaints() {
+    return this.request<any>('/complaints/recent')
+  }
+
   async getUnreadComplaintCount() {
     return this.request<any>('/complaints/unread-count')
   }
@@ -709,11 +713,50 @@ class ApiClient {
     return this.request<any>(`/complaints/${id}/read`, { method: 'PATCH' })
   }
 
-  async updateComplaint(id: string, data: { status: string; reply?: string }) {
+  async updateComplaint(id: string, data: { status: string; reply?: string; requestKey?: string } | FormData) {
+    if (data instanceof FormData) {
+      data.append('_method', 'PUT')
+      return this.request<any>(`/complaints/${id}`, {
+        method: 'POST',
+        body: data,
+      })
+    }
+
     return this.request<any>(`/complaints/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     })
+  }
+
+  async getComplaintImage(id: string) {
+    return this.getComplaintImageBlob(`/complaints/${id}/image`)
+  }
+
+  async getComplaintReplyImage(complaintId: string, replyId: string) {
+    return this.getComplaintImageBlob(`/complaints/${complaintId}/replies/${replyId}/image`)
+  }
+
+  private async getComplaintImageBlob(endpoint: string): Promise<Blob> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      headers,
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      let message = 'Unable to load the complaint image.'
+      try {
+        const error = await response.json()
+        if (typeof error?.message === 'string') message = error.message
+      } catch {
+        // Keep the user-facing fallback for non-JSON error responses.
+      }
+      throw new Error(message)
+    }
+
+    return response.blob()
   }
 
   async updateTenant(id: string, data: any) {

@@ -7,12 +7,12 @@ const API_URL = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_API_
 )
 
 export async function POST(request: NextRequest) {
-  const body = await request.text()
-
   try {
+    const isMultipart = request.headers.get('content-type')?.includes('multipart/form-data') ?? false
+    const body = isMultipart ? await request.formData() : await request.text()
     const response = await fetch(`${API_URL.replace(/\/$/, '')}/public/tenant-scan/complaints`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: isMultipart ? undefined : { 'Content-Type': 'application/json' },
       body,
       cache: 'no-store',
     })

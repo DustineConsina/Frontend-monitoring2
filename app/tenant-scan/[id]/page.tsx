@@ -1,6 +1,7 @@
 ﻿'use client'
 
-import { Suspense, useState } from 'react'
+import Image from 'next/image'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -11,6 +12,12 @@ interface RentalSpace {
   name?: string
   type?: string
   floor?: string | number
+}
+
+const formatDateTime = (d?: string) => {
+  if (!d) return 'Date unavailable'
+  const date = new Date(d)
+  return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString()
 }
 
 interface Contract {
@@ -37,6 +44,28 @@ interface Payment {
   payment_date?: string
 }
 
+interface TenantComplaint {
+  id: number
+  category?: string
+  subject: string
+  message: string
+  has_image?: boolean
+  hasImage?: boolean
+  status: string
+  reply?: string | null
+  created_at?: string
+  createdAt?: string
+  replies?: Array<{
+    id: number
+    message: string
+    has_image?: boolean
+    hasImage?: boolean
+    created_at?: string
+    createdAt?: string
+    sender?: { name?: string; role?: string }
+  }>
+}
+
 interface TenantPublic {
   id: number
   tenant_code: string
@@ -49,6 +78,7 @@ interface TenantPublic {
   profile_picture_url?: string
   email?: string
   contracts: Contract[]
+  complaints: TenantComplaint[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -137,9 +167,64 @@ function TenantScanContent() {
   const [complaintCategory, setComplaintCategory] = useState('other')
   const [complaintSubject, setComplaintSubject] = useState('')
   const [complaintMessage, setComplaintMessage] = useState('')
+  const [complaintImage, setComplaintImage] = useState<File | null>(null)
+  const [complaintImageUrls, setComplaintImageUrls] = useState<Record<string, string>>({})
+  const [complaintImageError, setComplaintImageError] = useState('')
+  const complaintImageInput = useRef<HTMLInputElement>(null)
   const [complaintSuccess, setComplaintSuccess] = useState('')
   const [complaintError, setComplaintError] = useState('')
   const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const createdUrls: string[] = []
+    setComplaintImageUrls({})
+    setComplaintImageError('')
+
+    const loadImage = async (key: string, complaintId: number, replyId?: number) => {
+      try {
+        const response = await fetch('/api/tenant-scan/complaints/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: qrToken,
+            access_code: accessCode,
+            complaint_id: complaintId,
+            ...(replyId ? { reply_id: replyId } : {}),
+          }),
+          cache: 'no-store',
+        })
+        if (!response.ok) throw new Error('Unable to load an image attachment.')
+
+        const imageUrl = URL.createObjectURL(await response.blob())
+        if (cancelled) {
+          URL.revokeObjectURL(imageUrl)
+          return
+        }
+
+        createdUrls.push(imageUrl)
+        setComplaintImageUrls((current) => ({ ...current, [key]: imageUrl }))
+      } catch {
+        if (!cancelled) setComplaintImageError('Some complaint images could not be loaded. Please refresh and try again.')
+      }
+    }
+
+    const pendingImages = tenant?.complaints.flatMap((complaint) => [
+      ...((complaint.has_image || complaint.hasImage)
+        ? [loadImage(`${complaint.id}:complaint`, complaint.id)]
+        : []),
+      ...(complaint.replies || []).flatMap((reply) => (reply.has_image || reply.hasImage)
+        ? [loadImage(`${complaint.id}:reply:${reply.id}`, complaint.id, reply.id)]
+        : []),
+    ]) || []
+
+    void Promise.all(pendingImages)
+
+    return () => {
+      cancelled = true
+      createdUrls.forEach((imageUrl) => URL.revokeObjectURL(imageUrl))
+    }
+  }, [tenant, qrToken, accessCode])
 
   const handleVerifyQrPassword = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -199,6 +284,7 @@ function TenantScanContent() {
         business_address: tenantData.businessAddress || tenantData.business_address,
         profile_picture_url: getProfilePictureUrl(tenantData.profilePictureUrl || tenantData.profile_picture_url || tenantData.profilePicture || tenantData.profile_picture),
         contracts,
+        complaints: Array.isArray(tenantData.complaints) ? tenantData.complaints : [],
       })
     } catch (error: unknown) {
       setFetchError(error instanceof Error ? error.message : 'Unable to verify this QR code.')
@@ -214,16 +300,17 @@ function TenantScanContent() {
     setIsSubmittingComplaint(true)
 
     try {
+      const body = new FormData()
+      body.append('token', qrToken)
+      body.append('access_code', accessCode)
+      body.append('category', complaintCategory)
+      body.append('subject', complaintSubject)
+      body.append('message', complaintMessage)
+      if (complaintImage) body.append('image', complaintImage)
+
       const response = await fetch('/api/tenant-scan/complaints', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: qrToken,
-          access_code: accessCode,
-          category: complaintCategory,
-          subject: complaintSubject,
-          message: complaintMessage,
-        }),
+        body,
       })
 
       const rawText = await response.text()
@@ -247,6 +334,13 @@ function TenantScanContent() {
 
       setComplaintSubject('')
       setComplaintMessage('')
+      setComplaintImage(null)
+      if (complaintImageInput.current) complaintImageInput.current.value = ''
+      if (json?.data) {
+        setTenant((current) => current
+          ? { ...current, complaints: [json.data as TenantComplaint, ...current.complaints] }
+          : current)
+      }
       setComplaintSuccess(json?.message || 'Your message has been submitted successfully.')
     } catch (error: unknown) {
       setComplaintError(error instanceof Error ? error.message : 'Unable to submit your message.')
@@ -518,6 +612,64 @@ function TenantScanContent() {
           </div>
         )}
 
+        <section className="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-lg" aria-labelledby="tenant-requests-title">
+          <div className="mb-4">
+            <h2 id="tenant-requests-title" className="text-lg font-bold text-slate-900">Your complaints and responses</h2>
+            <p className="mt-1 text-sm text-slate-600">Private to this tenant QR code and its access password.</p>
+          </div>
+          {!tenant.complaints.length ? (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No complaints have been submitted yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {tenant.complaints.map((complaint) => (
+                <article key={complaint.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="break-words text-sm font-bold text-slate-900">{complaint.subject}</h3>
+                      <time className="mt-1 block text-xs text-slate-500">
+                        Submitted {formatDateTime(complaint.createdAt || complaint.created_at)}
+                      </time>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusColor(complaint.status)}`}>
+                      {(complaint.status || 'pending').replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-5 text-slate-700">{complaint.message}</p>
+                  {complaintImageUrls[`${complaint.id}:complaint`] && (
+                    <a href={complaintImageUrls[`${complaint.id}:complaint`]} target="_blank" rel="noreferrer" className="mt-3 block w-fit">
+                      <Image src={complaintImageUrls[`${complaint.id}:complaint`]} alt="Image attached to complaint" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
+                    </a>
+                  )}
+                  <div className="mt-3 space-y-2">
+                    {complaint.replies?.map((reply) => (
+                      <div key={reply.id} className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-teal-800">
+                            {String(reply.sender?.role || '').toLowerCase() === 'tenant' ? 'Your reply' : 'Administration response'}
+                          </span>
+                          <time className="text-[11px] text-slate-500">{formatDateTime(reply.createdAt || reply.created_at)}</time>
+                        </div>
+                        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-slate-800">{reply.message}</p>
+                        {complaintImageUrls[`${complaint.id}:reply:${reply.id}`] && (
+                          <a href={complaintImageUrls[`${complaint.id}:reply:${reply.id}`]} target="_blank" rel="noreferrer" className="mt-3 block w-fit">
+                            <Image src={complaintImageUrls[`${complaint.id}:reply:${reply.id}`]} alt="Image attached to response" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                    {!complaint.replies?.length && complaint.reply && (
+                      <div className="rounded-lg border border-teal-100 bg-teal-50/70 p-3">
+                        <p className="text-xs font-bold text-teal-800">Administration response</p>
+                        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-slate-800">{complaint.reply}</p>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section className="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-lg" aria-labelledby="tenant-complaint-title">
           <h2 id="tenant-complaint-title" className="text-lg font-bold text-slate-900">
             Send a complaint or message
@@ -578,6 +730,36 @@ function TenantScanContent() {
                 className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 placeholder="Provide details so the PFDA team can assist you."
               />
+            </div>
+
+            <div>
+              <label htmlFor="complaint-image" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Image attachment <span className="font-normal text-slate-500">(optional, JPG/PNG/WebP up to 5 MB)</span>
+              </label>
+              <input
+                ref={complaintImageInput}
+                id="complaint-image"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null
+                  if (file && file.size > 5 * 1024 * 1024) {
+                    setComplaintError('The image must be 5 MB or smaller.')
+                    setComplaintImage(null)
+                    event.target.value = ''
+                    return
+                  }
+                  setComplaintError('')
+                  setComplaintImage(file)
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700"
+              />
+              {complaintImage && (
+                <p className="mt-1.5 text-xs text-slate-500">Selected: {complaintImage.name}</p>
+              )}
+              {complaintImageError && (
+                <p role="status" className="mt-1.5 text-xs text-amber-700">{complaintImageError}</p>
+              )}
             </div>
 
             {complaintError && (
