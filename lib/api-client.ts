@@ -681,17 +681,17 @@ class ApiClient {
     return this.request<any>('/tenant/complaints')
   }
 
-  async createComplaint(data: { category: string; subject: string; message: string }) {
+  async createComplaint(data: { category: string; subject: string; message: string } | FormData) {
     return this.request<any>('/tenant/complaints', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data instanceof FormData ? data : JSON.stringify(data),
     })
   }
 
-  async replyToComplaint(id: string, message: string) {
+  async replyToComplaint(id: string, message: string | FormData) {
     return this.request<any>(`/tenant/complaints/${id}/replies`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: message instanceof FormData ? message : JSON.stringify({ message }),
     })
   }
 
