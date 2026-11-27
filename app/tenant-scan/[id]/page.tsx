@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import Image from 'next/image'
-import { Loader2, Send } from 'lucide-react'
+import { ChevronDown, Loader2, Send } from 'lucide-react'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
@@ -170,7 +170,8 @@ function TenantScanContent() {
   const [complaintMessage, setComplaintMessage] = useState('')
   const [complaintImage, setComplaintImage] = useState<File | null>(null)
   const [complaintImageUrls, setComplaintImageUrls] = useState<Record<string, string>>({})
-  const [complaintImageStates, setComplaintImageStates] = useState<Record<string, 'loading' | 'unavailable'>>({})
+  const [complaintImageStates, setComplaintImageStates] = useState<Record<string, { status: 'loading' | 'unavailable'; message?: string }>>({})
+  const [expandedComplaintId, setExpandedComplaintId] = useState<number | null>(null)
   const complaintImageInput = useRef<HTMLInputElement>(null)
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({})
   const [replyImages, setReplyImages] = useState<Record<number, File | null>>({})
@@ -187,7 +188,7 @@ function TenantScanContent() {
     setComplaintImageStates({})
 
     const loadImage = async (key: string, complaintId: number, replyId?: number) => {
-      setComplaintImageStates((current) => ({ ...current, [key]: 'loading' }))
+      setComplaintImageStates((current) => ({ ...current, [key]: { status: 'loading' } }))
       try {
         const response = await fetch('/api/tenant-scan/complaints/image', {
           method: 'POST',
@@ -200,9 +201,16 @@ function TenantScanContent() {
           }),
           cache: 'no-store',
         })
-        if (!response.ok) throw new Error('Unable to load an image attachment.')
+        if (!response.ok) {
+          const error = await response.json().catch(() => null)
+          throw new Error(error?.message || `Unable to load image attachment (HTTP ${response.status}).`)
+        }
 
-        const imageUrl = URL.createObjectURL(await response.blob())
+        const imageBlob = await response.blob()
+        if (!imageBlob.type.startsWith('image/')) {
+          throw new Error('The server response was not an image.')
+        }
+        const imageUrl = URL.createObjectURL(imageBlob)
         if (cancelled) {
           URL.revokeObjectURL(imageUrl)
           return
@@ -215,8 +223,11 @@ function TenantScanContent() {
           delete next[key]
           return next
         })
-      } catch {
-        if (!cancelled) setComplaintImageStates((current) => ({ ...current, [key]: 'unavailable' }))
+      } catch (error: unknown) {
+        if (!cancelled)         setComplaintImageStates((current) => ({
+          ...current,
+          [key]: { status: 'unavailable', message: error instanceof Error ? error.message : 'Unable to load image attachment.' },
+        }))
       }
     }
 
@@ -713,19 +724,29 @@ function TenantScanContent() {
                 })
 
                 return (
-                <article key={complaint.id} className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="break-words text-sm font-bold text-slate-900">{complaint.subject}</h3>
-                      <time className="mt-1 block text-xs text-slate-500">
-                        Submitted {formatDateTime(complaint.createdAt || complaint.created_at)}
-                      </time>
-                    </div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusColor(complaint.status)}`}>
-                      {(complaint.status || 'pending').replaceAll('_', ' ')}
+                <article key={complaint.id} className="overflow-hidden rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    aria-expanded={expandedComplaintId === complaint.id}
+                    aria-controls={`tenant-complaint-${complaint.id}`}
+                    onClick={() => setExpandedComplaintId((current) => current === complaint.id ? null : complaint.id)}
+                    className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-teal-100"
+                  >
+                    <span className="flex min-w-0 flex-1 items-start gap-3">
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm font-bold text-slate-900">{complaint.subject}</span>
+                        <time className="mt-1 block text-xs text-slate-500">
+                          Submitted {formatDateTime(complaint.createdAt || complaint.created_at)}
+                        </time>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusColor(complaint.status)}`}>
+                        {(complaint.status || 'pending').replaceAll('_', ' ')}
+                      </span>
                     </span>
-                  </div>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-5 text-slate-700">{complaint.message}</p>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${expandedComplaintId === complaint.id ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </button>
+                  {expandedComplaintId === complaint.id && <div id={`tenant-complaint-${complaint.id}`} className="border-t border-slate-100 p-4">
+                  <p className="whitespace-pre-wrap text-sm leading-5 text-slate-700">{complaint.message}</p>
                   {complaintImageUrls[`${complaint.id}:complaint`] && (
                     <a href={complaintImageUrls[`${complaint.id}:complaint`]} target="_blank" rel="noreferrer" className="mt-3 block w-fit">
                       <Image src={complaintImageUrls[`${complaint.id}:complaint`]} alt="Image attached to complaint" width={720} height={480} unoptimized className="max-h-64 w-auto rounded-lg border border-slate-200 object-contain" />
@@ -733,7 +754,9 @@ function TenantScanContent() {
                   )}
                   {complaintImageStates[`${complaint.id}:complaint`] && (
                     <p role="status" className="mt-3 text-xs text-slate-500">
-                      {complaintImageStates[`${complaint.id}:complaint`] === 'loading' ? 'Loading complaint image…' : 'Complaint image is unavailable.'}
+                      {complaintImageStates[`${complaint.id}:complaint`].status === 'loading'
+                        ? 'Loading complaint image…'
+                        : `Complaint image unavailable: ${complaintImageStates[`${complaint.id}:complaint`].message}`}
                     </p>
                   )}
                   <div className="mt-3 space-y-2">
@@ -759,7 +782,9 @@ function TenantScanContent() {
                         )}
                         {complaintImageStates[`${complaint.id}:reply:${reply.id}`] && (
                           <p role="status" className="mt-3 text-xs text-slate-500">
-                            {complaintImageStates[`${complaint.id}:reply:${reply.id}`] === 'loading' ? 'Loading reply image…' : 'Reply image is unavailable.'}
+                            {complaintImageStates[`${complaint.id}:reply:${reply.id}`].status === 'loading'
+                              ? 'Loading reply image…'
+                              : `Reply image unavailable: ${complaintImageStates[`${complaint.id}:reply:${reply.id}`].message}`}
                           </p>
                         )}
                       </div>
@@ -815,6 +840,7 @@ function TenantScanContent() {
                       </button>
                     </form>
                   )}
+                  </div>}
                 </article>
                 )
               })}

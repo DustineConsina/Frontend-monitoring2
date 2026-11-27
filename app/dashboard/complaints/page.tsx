@@ -63,7 +63,7 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
   const responseRequestKeys = useRef<Record<number, string>>({})
   const attachmentUrls = useRef<Record<string, string>>({})
   const [attachmentImages, setAttachmentImages] = useState<Record<string, string>>({})
-  const [attachmentStates, setAttachmentStates] = useState<Record<string, 'loading' | 'unavailable'>>({})
+  const [attachmentStates, setAttachmentStates] = useState<Record<string, { status: 'loading' | 'unavailable'; message?: string }>>({})
   const [drafts, setDrafts] = useState<Record<number, { status: string; reply: string }>>({})
   const [replyImages, setReplyImages] = useState<Record<number, File | null>>({})
   const [statusFilter, setStatusFilter] = useState('all')
@@ -180,7 +180,7 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
 
     const loadImage = (key: string, fetchImage: () => Promise<Blob>) => {
       if (attachmentUrls.current[key]) return
-      setAttachmentStates((current) => ({ ...current, [key]: 'loading' }))
+      setAttachmentStates((current) => ({ ...current, [key]: { status: 'loading' } }))
       void fetchImage().then((blob) => {
         const url = URL.createObjectURL(blob)
         if (attachmentUrls.current[key]) {
@@ -194,8 +194,11 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
           delete next[key]
           return next
         })
-      }).catch(() => {
-        setAttachmentStates((current) => ({ ...current, [key]: 'unavailable' }))
+      }).catch((imageError: unknown) => {
+        setAttachmentStates((current) => ({
+          ...current,
+          [key]: { status: 'unavailable', message: imageError instanceof Error ? imageError.message : 'Unable to load image attachment.' },
+        }))
       })
     }
 
@@ -356,7 +359,9 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                   )}
                                   {attachmentStates[`complaint:${complaint.id}`] && (
                                     <p role="status" className="mt-3 text-xs text-slate-500">
-                                      {attachmentStates[`complaint:${complaint.id}`] === 'loading' ? 'Loading complaint image…' : 'Complaint image is unavailable.'}
+                                      {attachmentStates[`complaint:${complaint.id}`].status === 'loading'
+                                        ? 'Loading complaint image…'
+                                        : `Complaint image unavailable: ${attachmentStates[`complaint:${complaint.id}`].message}`}
                                     </p>
                                   )}
                                 </div>
@@ -381,7 +386,9 @@ export function ComplaintsPanel({ onUnreadCountChange }: { onUnreadCountChange?:
                                       )}
                                       {attachmentStates[`reply:${reply.id}`] && (
                                         <p role="status" className="mt-3 text-xs text-slate-500">
-                                          {attachmentStates[`reply:${reply.id}`] === 'loading' ? 'Loading reply image…' : 'Reply image is unavailable.'}
+                                          {attachmentStates[`reply:${reply.id}`].status === 'loading'
+                                            ? 'Loading reply image…'
+                                            : `Reply image unavailable: ${attachmentStates[`reply:${reply.id}`].message}`}
                                         </p>
                                       )}
                                     </div>
